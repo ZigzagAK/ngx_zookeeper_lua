@@ -658,6 +658,8 @@ ngx_zookeeper_check_completition(lua_State * L)
 
     r = CAST(luaL_checkinteger(L, 1), get_result_t*);
 
+    spinlock_lock(&r->lock);
+
     lua_pushboolean(L, r->completed);
     if (r->completed)
     {
@@ -669,6 +671,8 @@ ngx_zookeeper_check_completition(lua_State * L)
     {
         lua_pushnil(L);
     }
+
+    spinlock_unlock(&r->lock);
 
     return 2;
 }
