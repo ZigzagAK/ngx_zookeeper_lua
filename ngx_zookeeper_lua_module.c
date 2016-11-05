@@ -554,8 +554,8 @@ ngx_zookeeper_aget(lua_State * L)
     r->value.data = ngx_pcalloc(ngx_cycle->pool, MAX_DATA_SIZE);
     if (!r->value.data)
     {
-        r->value.data = (u_char *)"Failed to allocate memory";
-        r->value.len = ngx_strlen(r->value.data);
+        ngx_pfree(ngx_cycle->pool, r);
+        return ngx_zookeeper_lua_error(L, "aget", "Failed to allocate memory");
     }
 
     path.data = CAST(luaL_checklstring(L, 1, &path.len), u_char*);
