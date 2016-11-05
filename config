@@ -1,0 +1,16 @@
+ngx_addon_name=ngx_zookeeper_lua_module
+HTTP_ZOOKEEPER_LUA_SRCS="$ngx_addon_dir/ngx_zookeeper_lua_module.c"
+
+if test -n "$ngx_module_link"; then
+    ngx_module_type=HTTP
+    ngx_module_name=$ngx_addon_name
+    ngx_module_srcs="$HTTP_ZOOKEEPER_LUA_SRCS"    
+
+    . auto/module
+else
+    HTTP_MODULES="$HTTP_MODULES $ngx_addon_name"
+    NGX_ADDON_SRCS="$NGX_ADDON_SRCS $HTTP_ZOOKEEPER_LUA_SRCS"
+
+    CORE_INCS="$CORE_INCS $ngx_module_incs"
+    CORE_LIBS="$CORE_LIBS $ngx_module_libs"
+fi
