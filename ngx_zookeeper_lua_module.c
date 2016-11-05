@@ -7,6 +7,8 @@
 
 #define CAST(p, T) ((T)p)
 
+#define MAX_DATA_SIZE 1048576
+
 ngx_module_t ngx_zookeeper_lua_module;
 
 static void *
@@ -423,11 +425,13 @@ static int ngx_zookeeper_aget_childrens(lua_State * L);
 static int ngx_zookeeper_acreate(lua_State * L);
 static int ngx_zookeeper_adelete(lua_State * L);
 static int ngx_zookeeper_check_completition(lua_State * L);
+static int ngx_zookeeper_timeout(lua_State * L);
+static int ngx_zookeeper_forgot(lua_State * L);
 
 static int
 ngx_zookeeper_lua_create_module(lua_State * L)
 {
-    lua_createtable(L, 0, 6);
+    lua_createtable(L, 0, 8);
 
     lua_pushcfunction(L, ngx_zookeeper_aget);
     lua_setfield(L, -2, "aget");
@@ -447,6 +451,12 @@ ngx_zookeeper_lua_create_module(lua_State * L)
     lua_pushcfunction(L, ngx_zookeeper_check_completition);
     lua_setfield(L, -2, "check_completition");
 
+    lua_pushcfunction(L, ngx_zookeeper_timeout);
+    lua_setfield(L, -2, "timeout");
+
+    lua_pushcfunction(L, ngx_zookeeper_forgot);
+    lua_setfield(L, -2, "forgor");
+
     return 1;
 }
 
@@ -463,44 +473,54 @@ ngx_zookeeper_lua_error(lua_State * L, const char *where, const char *error)
 typedef struct {
     ngx_str_t value;
     int completed;
+    int forgotten;
+    int gc;
+    ngx_atomic_t lock;
 } get_result_t;
+
+static void
+spinlock_lock(ngx_atomic_t *lock)
+{
+    while (ngx_atomic_cmp_set(lock, 0, 1) == 1)
+        sched_yield();
+}
+
+static void
+spinlock_unlock(ngx_atomic_t *lock)
+{
+    *lock = 0;
+}
+
 
 static void
 ngz_zookeeper_get_ready(int rc, const char *value, int value_len, const struct Stat *stat, const void *data)
 {
     get_result_t *r = (get_result_t *) data;
 
+    spinlock_lock(&r->lock);
+
+    if (r->forgotten)
+    {
+        r->gc = 1;
+        spinlock_unlock(&r->lock);
+        return;
+    }
+
     if (rc == ZOK)
     {
-        r->value.data = ngx_pcalloc(ngx_cycle->pool, value_len);
-        if (!r->value.data)
-        {
-            r->value.data = (u_char *)"Failed to allocate memory";
-            r->value.len = ngx_strlen(r->value.data);
-        }
-        else
-        {
-            memcpy(r->value.data, value, value_len);
-            r->value.len = value_len;
-        }
+        memcpy(r->value.data, value, ngx_min(value_len, MAX_DATA_SIZE));
+        r->value.len = value_len;
     }
     else
     {
         const u_char *error = rc_str(rc);
         r->value.len = ngx_strlen(error);
-        r->value.data = ngx_pcalloc(ngx_cycle->pool, ngx_strlen(error));
-        if (!r->value.data)
-        {
-            r->value.data = (u_char *)"Failed to allocate memory";
-            r->value.len = ngx_strlen(r->value.data);
-        }
-        else
-        {
-            memcpy(r->value.data, error, r->value.len);
-        }
+        memcpy(r->value.data, error, r->value.len);
     }
 
     r->completed = 1;
+
+    spinlock_unlock(&r->lock);
 }
 
 static int
@@ -522,13 +542,20 @@ ngx_zookeeper_aget(lua_State * L)
 
     if (lua_gettop(L) != 1)
     {
-        return ngx_zookeeper_lua_error(L, "open", "exactly one arguments expected");
+        return ngx_zookeeper_lua_error(L, "aget", "exactly one arguments expected");
     }
 
     r = ngx_pcalloc(ngx_cycle->pool, sizeof(get_result_t));
     if (!r)
     {
         return ngx_zookeeper_lua_error(L, "aget", "Failed to allocate memory");
+    }
+
+    r->value.data = ngx_pcalloc(ngx_cycle->pool, MAX_DATA_SIZE);
+    if (!r->value.data)
+    {
+        r->value.data = (u_char *)"Failed to allocate memory";
+        r->value.len = ngx_strlen(r->value.data);
     }
 
     path.data = CAST(luaL_checklstring(L, 1, &path.len), u_char*);
@@ -644,4 +671,41 @@ ngx_zookeeper_check_completition(lua_State * L)
     }
 
     return 2;
+}
+
+static int
+ngx_zookeeper_timeout(lua_State * L)
+{
+    if (!zoo.handle)
+    {
+        lua_pushnil(L);
+    }
+    else
+    {
+        lua_pushinteger(L, CAST(zoo_recv_timeout(zoo.handle), lua_Integer));
+    }
+
+    return 1;
+}
+
+static int
+ngx_zookeeper_forgot(lua_State * L)
+{
+    get_result_t *r = CAST(luaL_checkinteger(L, 1), get_result_t*);
+
+    spinlock_lock(&r->lock);
+
+    if (r->completed)
+    {
+        ngx_pfree(ngx_cycle->pool, r->value.data);
+        ngx_pfree(ngx_cycle->pool, r);
+    }
+    else
+    {
+        r->forgotten = 1;
+    }
+
+    spinlock_unlock(&r->lock);
+
+    return 0;
 }
