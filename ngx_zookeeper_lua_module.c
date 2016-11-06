@@ -8,8 +8,6 @@
 
 #define CAST(p, T) ((T)p)
 
-#define MAX_DATA_SIZE 1048576
-
 ngx_module_t ngx_zookeeper_lua_module;
 
 static void *
