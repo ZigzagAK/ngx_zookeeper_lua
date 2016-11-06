@@ -543,16 +543,6 @@ ngx_zookeeper_check_completition(lua_State * L)
 {
     result_t *r;
 
-    if (!zoo.handle)
-    {
-        return ngx_zookeeper_lua_error(L, "check_completition", "zookeeper handle is nil");
-    }
-
-    if (!zoo.connected)
-    {
-        return ngx_zookeeper_lua_error(L, "check_completition", "not connected");
-    }
-
     if (lua_gettop(L) != 1)
     {
         return ngx_zookeeper_lua_error(L, "check_completition", "exactly one arguments expected");
@@ -561,6 +551,20 @@ ngx_zookeeper_check_completition(lua_State * L)
     r = CAST(luaL_checkinteger(L, 1), result_t*);
 
     spinlock_lock(&r->lock);
+
+    if (!zoo.handle)
+    {
+        r->forgotten = 1;
+        spinlock_unlock(&r->lock);
+        return ngx_zookeeper_lua_error(L, "check_completition", "zookeeper handle is nil");
+    }
+
+    if (!zoo.connected)
+    {
+        r->forgotten = 1;
+        spinlock_unlock(&r->lock);
+        return ngx_zookeeper_lua_error(L, "check_completition", "not connected");
+    }
 
     lua_pushboolean(L, r->completed);
 
@@ -591,7 +595,7 @@ ngx_zookeeper_check_completition(lua_State * L)
         spinlock_unlock(&r->lock);
     }
 
-    return 3;
+    return 3;    
 }
 
 static int
