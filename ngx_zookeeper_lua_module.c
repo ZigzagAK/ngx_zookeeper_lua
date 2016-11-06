@@ -480,9 +480,6 @@ struct get_childs_result_s
 };
 typedef struct get_childs_result_s get_childs_result_t;
 
-// forward declaration
-struct result_s;
-
 typedef void (*completition_t)(lua_State * L, void *data);
 
 struct result_s
@@ -652,6 +649,7 @@ static void
 ngz_zookeeper_get_ready(int rc, const char *value, int value_len, const struct Stat *stat, const void *data)
 {
     result_t *r = (result_t *) data;
+    get_result_t *g_r;
 
     spinlock_lock(&r->lock);
 
@@ -662,40 +660,40 @@ ngz_zookeeper_get_ready(int rc, const char *value, int value_len, const struct S
         return;
     }
 
-    if (rc == ZOK)
-    {
-        get_result_t *g_r = ngx_calloc(sizeof(get_result_t), ngx_cycle->log);
-        if (g_r)
-        {
-            if (value && value_len)
-            {
-                g_r->data = ngx_calloc(value_len, ngx_cycle->log);
-                if (!g_r->data)
-                {
-                    ngx_free(g_r);
-                    g_r = NULL;
-                }
-            }
-        }
-
-        if (g_r && g_r->data)
-        {
-            memcpy(g_r->data, value, value_len);        
-            g_r->len = value_len;
-            r->data = g_r;
-        }
-        else
-        {
-            if (value && value_len)
-            {
-                r->error = "Failed to allocate memory";
-            }
-        }
-    }
-    else
+    if (rc != ZOK)
     {
         r->error = rc_str_s(rc);
+        goto end;
     }
+
+    g_r = ngx_calloc(sizeof(get_result_t), ngx_cycle->log);
+    if (!g_r)
+    {
+        goto error_alloc;
+    }
+
+    if (value && value_len)
+    {
+        g_r->data = ngx_calloc(value_len, ngx_cycle->log);
+        if (!g_r->data)
+        {
+            ngx_free(g_r);
+            goto error_alloc;
+        }
+ 
+        memcpy(g_r->data, value, value_len);     
+        g_r->len = value_len;
+    }
+
+    r->data = g_r;
+
+    goto end;
+
+error_alloc:
+
+    r->error = "Failed to allocate memory";
+
+end:
 
     r->completed = 1;
 
@@ -756,6 +754,7 @@ ngx_zookeeper_get_childrens_completition(lua_State * L, void *data)
 
     if (!g_r || !g_r->array)
     {
+        lua_pushnil(L);
         return;
     }
 
@@ -773,7 +772,7 @@ static void
 ngz_zookeeper_get_childrens_ready(int rc, const struct String_vector *strings, const void *data)
 {
     result_t *r = (result_t *) data;
-    int err = 0;
+    get_childs_result_t *g_r;
 
     spinlock_lock(&r->lock);
 
@@ -784,76 +783,76 @@ ngz_zookeeper_get_childrens_ready(int rc, const struct String_vector *strings, c
         return;
     }
 
-    if (rc == ZOK)
-    {
-        get_childs_result_t *g_r = ngx_calloc(sizeof(get_childs_result_t), ngx_cycle->log);
-
-        if (g_r)
-        {
-            if (strings && strings->data && strings->count)
-            {
-                g_r->array = ngx_calloc(sizeof(ngx_str_t) * strings->count, ngx_cycle->log);
-                if (!g_r->array)
-                {
-                    ngx_free(g_r);
-                    g_r = NULL;
-                    err = 1;
-                }
-
-                if (g_r && g_r->array)
-                {
-                    for (g_r->count = 0; g_r->count < strings->count; ++g_r->count)
-                    {
-                        int len = strlen(strings->data[g_r->count]);
-
-                        g_r->array[g_r->count].data = ngx_calloc(len, ngx_cycle->log);
-                        if (!g_r->array[g_r->count].data)
-                        {
-                            err = 1;
-                            break;
-                        }
-
-                        g_r->array[g_r->count].len = len;                    
-                        memcpy(g_r->array[g_r->count].data, strings->data[g_r->count], len);
-                    }
-
-                    if (!err)
-                    {
-                        r->data = g_r;
-                    }
-                }
-            }
-        }
-
-        if (err)
-        {
-            if (g_r && g_r->array)
-            {
-                int j;
-
-                for (j = 0; j < g_r->count; ++j)
-                {
-                    if (g_r->array[j].data)
-                    {
-                        ngx_free(g_r->array[j].data);
-                    }
-                }
-
-                ngx_free(g_r->array);
-                ngx_free(g_r);
-            }
-
-            r->error = "Failed to allocate memory";
-        }
-    }
-    else
+    if (rc != ZOK)
     {
         r->error = rc_str_s(rc);
+        goto end;
     }
+    
+    g_r = ngx_calloc(sizeof(get_childs_result_t), ngx_cycle->log);
+    if (!g_r)
+    {
+        goto error_alloc;
+    }
+
+    if (strings && strings->data && strings->count)
+    {
+        g_r->array = ngx_calloc(sizeof(ngx_str_t) * strings->count, ngx_cycle->log);
+        if (!g_r->array)
+        {
+            ngx_free(g_r);
+            goto error_alloc;
+        }
+
+        for (g_r->count = 0; g_r->count < strings->count; ++g_r->count)
+        {
+            int len = strlen(strings->data[g_r->count]);
+
+            g_r->array[g_r->count].data = ngx_calloc(len, ngx_cycle->log);
+            if (!g_r->array[g_r->count].data)
+            {
+                goto clean;
+            }
+
+            g_r->array[g_r->count].len = len;                    
+            memcpy(g_r->array[g_r->count].data, strings->data[g_r->count], len);
+        }
+    }
+
+    r->data = g_r;
+
+    goto end;
+
+error_alloc:
+
+    r->error = "Failed to allocate memory";
+
+end:
 
     r->completed = 1;
 
     spinlock_unlock(&r->lock);
+
+    return;
+
+clean:
+
+    if (g_r && g_r->array)
+    {
+        int j;
+        for (j = 0; j < g_r->count; ++j)
+        {
+            if (g_r->array[j].data)
+            {
+                ngx_free(g_r->array[j].data);
+            }
+        }
+
+        ngx_free(g_r->array);
+        ngx_free(g_r);
+    }
+
+    goto error_alloc;
 }
 
 static int

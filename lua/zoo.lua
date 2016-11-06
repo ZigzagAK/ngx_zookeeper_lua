@@ -57,7 +57,12 @@ function _M.childrens(znode)
     err = _M.errors.ZOO_TIMEOUT
   end
 
-  return (completed and err == nil), r, err
+  ok = completed and err == nil
+  if ok and r == nil then
+    r = {}
+  end
+
+  return ok, r, err
 end
 
 return _M
