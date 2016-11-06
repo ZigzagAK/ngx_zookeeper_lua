@@ -208,6 +208,8 @@ ngx_log_message(const char *s)
     ngx_log_debug0(NGX_LOG_DEBUG_HTTP, ngx_cycle->log, 0, s);
 }
 
+#if (NGX_DEBUG)
+
 static const char *
 str_type(int type)
 {
@@ -223,9 +225,11 @@ str_type(int type)
         return "SESSION_EVENT";
     if (type == ZOO_NOTWATCHING_EVENT)
         return "NOTWATCHING_EVENT";
-    
+
     return "UNKNOWN_EVENT_TYPE";
 }
+
+#endif
 
 static const char *
 rc_str_s(int rc)
