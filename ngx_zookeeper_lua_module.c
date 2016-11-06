@@ -1,6 +1,7 @@
 #include <ngx_core.h>
 #include <ngx_http.h>
 #include <lauxlib.h>
+#include <assert.h>
 #include <zookeeper/zookeeper.h>
 
 #include "ngx_http_lua_api.h"
@@ -455,7 +456,7 @@ ngx_zookeeper_lua_create_module(lua_State * L)
     lua_setfield(L, -2, "timeout");
 
     lua_pushcfunction(L, ngx_zookeeper_forgot);
-    lua_setfield(L, -2, "forgor");
+    lua_setfield(L, -2, "forgot");
 
     return 1;
 }
@@ -470,52 +471,230 @@ ngx_zookeeper_lua_error(lua_State * L, const char *where, const char *error)
     return 2;
 }
 
-typedef struct {
-    ngx_str_t value;
+typedef ngx_str_t get_result_t;
+
+struct get_childs_result_s
+{
+    ngx_str_t *array;
+    int count;
+};
+typedef struct get_childs_result_s get_childs_result_t;
+
+// forward declaration
+struct result_s;
+
+typedef void (*completition_t)(lua_State * L, void *data);
+
+struct result_s
+{
     int completed;
     int forgotten;
-    int gc;
     ngx_atomic_t lock;
-} get_result_t;
+    //---------------
+    void *data;
+    completition_t completition_fn;
+    const char *error;
+};
+typedef struct result_s result_t;
 
 static void
 spinlock_lock(ngx_atomic_t *lock)
 {
-    while (ngx_atomic_cmp_set(lock, 0, 1) == 1)
-        sched_yield();
+    int j;
+
+    for (j = 0;;++j)
+    {
+        if (ngx_atomic_cmp_set(lock, 0, 1))
+        {
+            break;
+        }
+
+        if (j % 1000 == 0)
+        {
+            ngx_cpu_pause();
+        }
+    }
+
+    assert(*lock == 1);
 }
 
 static void
 spinlock_unlock(ngx_atomic_t *lock)
 {
     *lock = 0;
+    ngx_memory_barrier();
 }
 
+static result_t *
+alloc_result()
+{
+    return ngx_calloc(sizeof(result_t), ngx_cycle->log);
+}
+
+static void
+free_result(result_t *r)
+{
+    if (r->data)
+    {
+        ngx_free(r->data);
+    }
+    ngx_free(r);
+}
+
+static int
+ngx_zookeeper_check_completition(lua_State * L)
+{
+    result_t *r;
+
+    if (!zoo.handle)
+    {
+        return ngx_zookeeper_lua_error(L, "check_completition", "zookeeper handle is nil");
+    }
+
+    if (!zoo.connected)
+    {
+        return ngx_zookeeper_lua_error(L, "check_completition", "not connected");
+    }
+
+    if (lua_gettop(L) != 1)
+    {
+        return ngx_zookeeper_lua_error(L, "check_completition", "exactly one arguments expected");
+    }
+
+    r = CAST(luaL_checkinteger(L, 1), result_t*);
+
+    spinlock_lock(&r->lock);
+
+    lua_pushboolean(L, r->completed);
+
+    if (r->completed)
+    {
+        if (r->data)
+        {
+            r->completition_fn(L, r->data);
+            lua_pushnil(L);
+        }
+        else if (r->error)
+        {
+            lua_pushnil(L);
+            lua_pushlstring(L, r->error, strlen(r->error));
+        }
+        else
+        {
+            lua_pushnil(L);
+            lua_pushlstring(L, "Unexpected unknown error", 24);
+        }
+        free_result(r);
+        r = NULL;
+    }
+    else
+    {
+        lua_pushnil(L);
+        lua_pushnil(L);
+        spinlock_unlock(&r->lock);
+    }
+
+    return 3;
+}
+
+static int
+ngx_zookeeper_forgot(lua_State * L)
+{
+    result_t *r = CAST(luaL_checkinteger(L, 1), result_t*);
+
+    spinlock_lock(&r->lock);
+
+    if (r->completed)
+    {
+        free_result(r);
+    }
+    else
+    {
+        r->forgotten = 1;
+        spinlock_unlock(&r->lock);
+    }
+
+    return 0;
+}
+
+static int
+ngx_zookeeper_timeout(lua_State * L)
+{
+    if (!zoo.handle)
+    {
+        lua_pushnil(L);
+    }
+    else
+    {
+        lua_pushinteger(L, CAST(zoo_recv_timeout(zoo.handle), lua_Integer));
+    }
+
+    return 1;
+}
+
+//---------------------------------------------------------------------------------------------------------
+
+static void
+ngx_zookeeper_get_completition(lua_State * L, void *data)
+{
+    get_result_t *g_r = (get_result_t *) data;
+    if (g_r && g_r->len)
+    {
+        lua_pushlstring(L, (const char *) g_r->data, g_r->len);
+    }
+    else
+    {
+        lua_pushnil(L);
+    }
+}
 
 static void
 ngz_zookeeper_get_ready(int rc, const char *value, int value_len, const struct Stat *stat, const void *data)
 {
-    get_result_t *r = (get_result_t *) data;
+    result_t *r = (result_t *) data;
 
     spinlock_lock(&r->lock);
 
     if (r->forgotten)
     {
-        r->gc = 1;
         spinlock_unlock(&r->lock);
+        free_result(r);
         return;
     }
 
     if (rc == ZOK)
     {
-        memcpy(r->value.data, value, ngx_min(value_len, MAX_DATA_SIZE));
-        r->value.len = value_len;
+        get_result_t *g_r = ngx_calloc(sizeof(get_result_t), ngx_cycle->log);
+        if (g_r)
+        {
+            if (value && value_len)
+            {
+                g_r->data = ngx_calloc(value_len, ngx_cycle->log);
+                if (!g_r->data)
+                {
+                    ngx_free(g_r);
+                    g_r = NULL;
+                }
+            }
+        }
+
+        if (g_r && g_r->data)
+        {
+            memcpy(g_r->data, value, value_len);        
+            g_r->len = value_len;
+            r->data = g_r;
+        }
+        else
+        {
+            if (value && value_len)
+            {
+                r->error = "Failed to allocate memory";
+            }
+        }
     }
     else
     {
-        const u_char *error = rc_str(rc);
-        r->value.len = ngx_strlen(error);
-        memcpy(r->value.data, error, r->value.len);
+        r->error = rc_str_s(rc);
     }
 
     r->completed = 1;
@@ -528,7 +707,7 @@ ngx_zookeeper_aget(lua_State * L)
 {
     int rc;
     ngx_str_t path;
-    get_result_t *r;
+    result_t *r;
 
     if (!zoo.handle)
     {
@@ -545,25 +724,174 @@ ngx_zookeeper_aget(lua_State * L)
         return ngx_zookeeper_lua_error(L, "aget", "exactly one arguments expected");
     }
 
-    r = ngx_pcalloc(ngx_cycle->pool, sizeof(get_result_t));
+    r = alloc_result();
     if (!r)
     {
         return ngx_zookeeper_lua_error(L, "aget", "Failed to allocate memory");
     }
 
-    r->value.data = ngx_pcalloc(ngx_cycle->pool, MAX_DATA_SIZE);
-    if (!r->value.data)
-    {
-        ngx_pfree(ngx_cycle->pool, r);
-        return ngx_zookeeper_lua_error(L, "aget", "Failed to allocate memory");
-    }
-
     path.data = CAST(luaL_checklstring(L, 1, &path.len), u_char*);
+    r->completition_fn = ngx_zookeeper_get_completition;
 
     rc = zoo_aget(zoo.handle, (const char *)path.data, 0, ngz_zookeeper_get_ready, r);
     if (rc != ZOK)
     {
+        free_result(r);
         return ngx_zookeeper_lua_error(L, "aget", rc_str_s(rc));
+    }
+
+    lua_pushboolean(L, 1);
+    lua_pushinteger(L, CAST(r, lua_Integer));
+
+    return 2;
+}
+
+//---------------------------------------------------------------------------------------------
+
+static void
+ngx_zookeeper_get_childrens_completition(lua_State * L, void *data)
+{
+    get_childs_result_t *g_r = (get_childs_result_t *) data;
+    int j;
+
+    if (!g_r || !g_r->array)
+    {
+        return;
+    }
+
+    lua_newtable(L);
+    lua_createtable(L, g_r->count, 0);
+
+    for (j = 0; j < g_r->count; ++j)
+    {
+        lua_pushlstring(L, (char *) g_r->array[j].data, g_r->array[j].len);
+        lua_rawseti (L, -2, j);
+    }
+}
+
+static void
+ngz_zookeeper_get_childrens_ready(int rc, const struct String_vector *strings, const void *data)
+{
+    result_t *r = (result_t *) data;
+    int err = 0;
+
+    spinlock_lock(&r->lock);
+
+    if (r->forgotten)
+    {
+        spinlock_unlock(&r->lock);
+        free_result(r);
+        return;
+    }
+
+    if (rc == ZOK)
+    {
+        get_childs_result_t *g_r = ngx_calloc(sizeof(get_childs_result_t), ngx_cycle->log);
+
+        if (g_r)
+        {
+            if (strings && strings->data && strings->count)
+            {
+                g_r->array = ngx_calloc(sizeof(ngx_str_t) * strings->count, ngx_cycle->log);
+                if (!g_r->array)
+                {
+                    ngx_free(g_r);
+                    g_r = NULL;
+                    err = 1;
+                }
+
+                if (g_r && g_r->array)
+                {
+                    for (g_r->count = 0; g_r->count < strings->count; ++g_r->count)
+                    {
+                        int len = strlen(strings->data[g_r->count]);
+
+                        g_r->array[g_r->count].data = ngx_calloc(len, ngx_cycle->log);
+                        if (!g_r->array[g_r->count].data)
+                        {
+                            err = 1;
+                            break;
+                        }
+
+                        g_r->array[g_r->count].len = len;                    
+                        memcpy(g_r->array[g_r->count].data, strings->data[g_r->count], len);
+                    }
+
+                    if (!err)
+                    {
+                        r->data = g_r;
+                    }
+                }
+            }
+        }
+
+        if (err)
+        {
+            if (g_r && g_r->array)
+            {
+                int j;
+
+                for (j = 0; j < g_r->count; ++j)
+                {
+                    if (g_r->array[j].data)
+                    {
+                        ngx_free(g_r->array[j].data);
+                    }
+                }
+
+                ngx_free(g_r->array);
+                ngx_free(g_r);
+            }
+
+            r->error = "Failed to allocate memory";
+        }
+    }
+    else
+    {
+        r->error = rc_str_s(rc);
+    }
+
+    r->completed = 1;
+
+    spinlock_unlock(&r->lock);
+}
+
+static int
+ngx_zookeeper_aget_childrens(lua_State * L)
+{
+    int rc;
+    ngx_str_t path;
+    result_t *r;
+
+    if (!zoo.handle)
+    {
+        return ngx_zookeeper_lua_error(L, "aget_childrens", "zookeeper handle is nil");
+    }
+
+    if (!zoo.connected)
+    {
+        return ngx_zookeeper_lua_error(L, "aget_childrens", "not connected");
+    }
+
+    if (lua_gettop(L) != 1)
+    {
+        return ngx_zookeeper_lua_error(L, "aget_childrens", "exactly one arguments expected");
+    }
+
+    r = alloc_result();
+    if (!r)
+    {
+        return ngx_zookeeper_lua_error(L, "aget_childrens", "Failed to allocate memory");
+    }
+
+    path.data = CAST(luaL_checklstring(L, 1, &path.len), u_char*);
+    r->completition_fn = ngx_zookeeper_get_childrens_completition;
+
+    rc = zoo_aget_children(zoo.handle, (const char *)path.data, 0, ngz_zookeeper_get_childrens_ready, r);
+    if (rc != ZOK)
+    {
+        free_result(r);
+        return ngx_zookeeper_lua_error(L, "aget_childrens", rc_str_s(rc));
     }
 
     lua_pushboolean(L, 1);
@@ -586,22 +914,6 @@ ngx_zookeeper_aset(lua_State * L)
     }
 
     return ngx_zookeeper_lua_error(L, "aset", "unsupported");
-}
-
-static int
-ngx_zookeeper_aget_childrens(lua_State * L)
-{
-    if (!zoo.handle)
-    {
-        return ngx_zookeeper_lua_error(L, "aget_childrens", "zookeeper handle is nil");
-    }
-
-    if (!zoo.connected)
-    {
-        return ngx_zookeeper_lua_error(L, "aget_childrens", "not connected");
-    }
-
-    return ngx_zookeeper_lua_error(L, "aget_childrens", "unsupported");
 }
 
 static int
@@ -636,80 +948,3 @@ ngx_zookeeper_adelete(lua_State * L)
     return ngx_zookeeper_lua_error(L, "adelete", "unsupported");
 }
 
-static int
-ngx_zookeeper_check_completition(lua_State * L)
-{
-    get_result_t *r;
-
-    if (!zoo.handle)
-    {
-        return ngx_zookeeper_lua_error(L, "check_completition", "zookeeper handle is nil");
-    }
-
-    if (!zoo.connected)
-    {
-        return ngx_zookeeper_lua_error(L, "check_completition", "not connected");
-    }
-
-    if (lua_gettop(L) != 1)
-    {
-        return ngx_zookeeper_lua_error(L, "check_completition", "exactly one arguments expected");
-    }
-
-    r = CAST(luaL_checkinteger(L, 1), get_result_t*);
-
-    spinlock_lock(&r->lock);
-
-    lua_pushboolean(L, r->completed);
-    if (r->completed)
-    {
-        lua_pushlstring(L, (const char *)r->value.data, r->value.len);
-        ngx_pfree(ngx_cycle->pool, r->value.data);
-        ngx_pfree(ngx_cycle->pool, r);
-    }
-    else
-    {
-        lua_pushnil(L);
-    }
-
-    spinlock_unlock(&r->lock);
-
-    return 2;
-}
-
-static int
-ngx_zookeeper_timeout(lua_State * L)
-{
-    if (!zoo.handle)
-    {
-        lua_pushnil(L);
-    }
-    else
-    {
-        lua_pushinteger(L, CAST(zoo_recv_timeout(zoo.handle), lua_Integer));
-    }
-
-    return 1;
-}
-
-static int
-ngx_zookeeper_forgot(lua_State * L)
-{
-    get_result_t *r = CAST(luaL_checkinteger(L, 1), get_result_t*);
-
-    spinlock_lock(&r->lock);
-
-    if (r->completed)
-    {
-        ngx_pfree(ngx_cycle->pool, r->value.data);
-        ngx_pfree(ngx_cycle->pool, r);
-    }
-    else
-    {
-        r->forgotten = 1;
-    }
-
-    spinlock_unlock(&r->lock);
-
-    return 0;
-}
