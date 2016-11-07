@@ -876,7 +876,7 @@ ngx_zookeeper_get_childrens_completition(lua_State * L, void *data)
     for (j = 0; j < g_r->count; ++j)
     {
         lua_pushlstring(L, (char *) g_r->array[j].data, g_r->array[j].len);
-        lua_rawseti (L, -2, j);
+        lua_rawseti (L, -2, j + 1);
     }
 }
 
