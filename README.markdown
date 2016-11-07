@@ -44,64 +44,86 @@ http {
 
     location = /get {
       content_by_lua_block {
-          local zoo = require 'zoo'
-          local ok, value, err = zoo.get(ngx.var.arg_znode)
-          if ok then
-            ngx.say(value)
-          else
-            ngx.say(err)
-          end
+        local zoo = require 'zoo'
+        local ok, value, err, stat = zoo.get(ngx.var.arg_znode)
+        if ok then
+          ngx.say(value)
+          ngx.say("czxid:" .. stat.czxid)
+          ngx.say("mzxid:" .. stat.mzxid)
+          ngx.say("ctime:" .. stat.ctime)
+          ngx.say("mtime:" .. stat.mtime)
+          ngx.say("version:" .. stat.version)
+          ngx.say("cversion:" .. stat.cversion)
+          ngx.say("aversion:" .. stat.aversion)
+          ngx.say("ephemeralOwner:" .. stat.ephemeralOwner)
+          ngx.say("dataLength:" .. stat.dataLength)
+          ngx.say("numChildren:" .. stat.numChildren)
+          ngx.say("pzxid:" .. stat.pzxid)
+        else
+          ngx.say(err)
+        end
       }
     }
 
     location = /childrens {
       content_by_lua_block {
-          local zoo = require 'zoo'
-          local ok, childs, err = zoo.childrens(ngx.var.arg_znode)
-          if ok then
-            for _, child in pairs(childs)
-            do
-              ngx.say(child)
-            end
-          else
-            ngx.say(err)
+        local zoo = require 'zoo'
+        local ok, childs, err = zoo.childrens(ngx.var.arg_znode)
+        if ok then
+          for _, child in pairs(childs)
+          do
+            ngx.say(child)
           end
+        else
+          ngx.say(err)
+        end
       }
     }
 
     location = /set {
       content_by_lua_block {
-          local zoo = require 'zoo'
-          local ok, err = zoo.set(ngx.var.arg_znode, ngx.var.arg_value)
-          if ok then
-            ngx.say("Stored")
-          else
-            ngx.say(err)
-          end
+        local zoo = require 'zoo'
+        local ok, err, stat = zoo.set(ngx.var.arg_znode, ngx.var.arg_value, ngx.var.arg_version)
+        if ok then
+          ngx.say("Stored")
+          ngx.say("czxid:" .. stat.czxid)
+          ngx.say("mzxid:" .. stat.mzxid)
+          ngx.say("ctime:" .. stat.ctime)
+          ngx.say("mtime:" .. stat.mtime)
+          ngx.say("version:" .. stat.version)
+          ngx.say("cversion:" .. stat.cversion)
+          ngx.say("aversion:" .. stat.aversion)
+          ngx.say("ephemeralOwner:" .. stat.ephemeralOwner)
+          ngx.say("dataLength:" .. stat.dataLength)
+          ngx.say("numChildren:" .. stat.numChildren)
+          ngx.say("pzxid:" .. stat.pzxid)
+        else
+          ngx.say(err)
+        end
       }
     }
 
     location = /create {
       content_by_lua_block {
-          local zoo = require 'zoo'
-          local ok, r, err = zoo.create(ngx.var.arg_znode, ngx.var.arg_value)
-          if ok then
-            ngx.say(r)
-          else
-            ngx.say("ERR:" .. err)
-          end
+        local zoo = require 'zoo'
+        local ok, r, err = zoo.create(ngx.var.arg_znode, ngx.var.arg_value)
+        if ok then
+          ngx.say(r)
+        else
+          ngx.say("ERR:" .. err)
+        end
       }
     }
 
     location = /delete {
       content_by_lua_block {
-          local zoo = require 'zoo'
-          local ok, err = zoo.delete(ngx.var.arg_znode)
-          if ok then
-            ngx.say("Deleted")
-          else
-            ngx.say(err)
-          end
+        local zoo = require 'zoo'
+        local ok, err = zoo.delete(ngx.var.arg_znode)
+        if ok then
+          ngx.say("Deleted")
+        else
+          ngx.say(err)
+        end
       }
     }
   }
@@ -146,11 +168,12 @@ Methods
 
 get
 -------------
-**syntax:** `ok, value, err = zoo.get(znode)`
+**syntax:** `ok, value, err, stat = zoo.get(znode)`
 
 **context:** *&#42;_by_lua&#42;*
 
-Get value of the `znode`.
+Get value of the `znode` and znode information.
+`stat`: { czxid, mzxid, ctime, mtime, version, cversion, aversion, ephemeralOwner, dataLength, numChildren, pzxid }
 
 Returns true and value on success, or false and a string describing an error otherwise.
 
@@ -166,13 +189,14 @@ Returns true and table of names on success, or false and a string describing an 
 
 set
 -------------
-**syntax:** `ok, err = zoo.set(znode, value)`
+**syntax:** `ok, err, stat = zoo.set(znode, value)`
 
 **context:** *&#42;_by_lua&#42;*
 
 Set value of the `znode`.
+`stat`: { czxid, mzxid, ctime, mtime, version, cversion, aversion, ephemeralOwner, dataLength, numChildren, pzxid }
 
-Returns true on success, or false and a string describing an error otherwise.
+Returns true and znode information on success, or false and a string describing an error otherwise.
 
 create
 -------------
