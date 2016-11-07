@@ -18,16 +18,16 @@ function _M.get(znode)
   local ok, sc = zoo.aget(znode)
   
   if not ok then
-    return ok, nil, sc
+    return ok, nil, sc, nil
   end
 
   local time_limit = timeto()
-  local completed, value, err
+  local completed, value, err, stat
 
   while not completed and ngx.now() * 1000 < time_limit
   do
     ngx.sleep(0.001)
-    completed, value, err = zoo.check_completition(sc)
+    completed, value, err, stat = zoo.check_completition(sc)
   end
 
   if not completed then
@@ -35,7 +35,7 @@ function _M.get(znode)
     err = _M.errors.ZOO_TIMEOUT
   end
 
-  return completed and not err, value, err
+  return completed and not err, value, err, stat
 end
 
 function _M.childrens(znode)
@@ -68,20 +68,24 @@ function _M.childrens(znode)
   return ok, childs, err
 end
 
-function _M.set(znode, value)
-  local ok, sc = zoo.aset(znode, value)
+function _M.set(znode, value, version)
+  if not version then
+    version = -1
+  end
+
+  local ok, sc = zoo.aset(znode, value, version)
   
   if not ok then
-    return ok, nil, sc
+    return ok, nil, sc, nil
   end
 
   local time_limit = timeto()
-  local completed, err
+  local completed, err, stat
   
   while not completed and ngx.now() * 1000 < time_limit
   do
     ngx.sleep(0.001)
-    completed, err = zoo.check_completition(sc)
+    completed, _, err, stat = zoo.check_completition(sc)
   end
 
   if not completed then
@@ -89,7 +93,7 @@ function _M.set(znode, value)
     err = _M.errors.ZOO_TIMEOUT
   end
 
-  return completed and not err, err
+  return completed and not err, err, stat
 end
 
 function _M.create(znode, value)
