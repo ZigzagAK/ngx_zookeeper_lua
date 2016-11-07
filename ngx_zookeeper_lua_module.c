@@ -494,6 +494,7 @@ struct result_s
 {
     int completed;
     int forgotten;
+    struct Stat stat;
     ngx_atomic_t lock;
     //---------------
     void *data;
@@ -587,13 +588,65 @@ ngx_zookeeper_check_completition(lua_State * L)
         else if (!r->error)
         {
             lua_pushnil(L);
-            rc = 2;
+            lua_pushnil(L);
         }
         else
         {
             lua_pushnil(L);
             lua_pushlstring(L, r->error, strlen(r->error));
         }
+
+        if (r->stat.pzxid)
+        {
+            lua_createtable(L, 0, 11);
+
+            lua_pushliteral(L, "czxid");
+            lua_pushinteger(L, (lua_Integer) r->stat.czxid);
+            lua_rawset(L, -3);
+
+            lua_pushliteral(L, "mzxid");
+            lua_pushinteger(L, (lua_Integer) r->stat.mzxid);
+            lua_rawset(L, -3);
+
+            lua_pushliteral(L, "ctime");
+            lua_pushinteger(L, (lua_Integer) r->stat.ctime);
+            lua_rawset(L, -3);
+
+            lua_pushliteral(L, "mtime");
+            lua_pushinteger(L, (lua_Integer) r->stat.mtime);
+            lua_rawset(L, -3);
+
+            lua_pushliteral(L, "version");
+            lua_pushinteger(L, (lua_Integer) r->stat.version);
+            lua_rawset(L, -3);
+
+            lua_pushliteral(L, "cversion");
+            lua_pushinteger(L, (lua_Integer) r->stat.cversion);
+            lua_rawset(L, -3);
+
+            lua_pushliteral(L, "aversion");
+            lua_pushinteger(L, (lua_Integer) r->stat.aversion);
+            lua_rawset(L, -3);
+
+            lua_pushliteral(L, "ephemeralOwner");
+            lua_pushinteger(L, (lua_Integer) r->stat.ephemeralOwner);
+            lua_rawset(L, -3);
+
+            lua_pushliteral(L, "dataLength");
+            lua_pushinteger(L, (lua_Integer) r->stat.dataLength);
+            lua_rawset(L, -3);
+
+            lua_pushliteral(L, "numChildren");
+            lua_pushinteger(L, (lua_Integer) r->stat.numChildren);
+            lua_rawset(L, -3);
+
+            lua_pushliteral(L, "pzxid");
+            lua_pushinteger(L, (lua_Integer) r->stat.pzxid);
+            lua_rawset(L, -3);
+
+            ++rc;
+        }
+
         free_result(r);
         r = NULL;
     }
@@ -700,6 +753,11 @@ ngx_zookeeper_string_ready(int rc, const char *value, int value_len, const struc
 
     r->data = g_r;
 
+    if (stat)
+    {
+        memcpy(&r->stat, stat, sizeof(struct Stat));
+    }
+
     goto end;
 
 error_alloc:
@@ -752,7 +810,7 @@ ngx_zookeeper_get_completition(lua_State * L, void *data)
 static void
 ngx_zookeeper_get_ready(int rc, const char *value, int value_len, const struct Stat *stat, const void *data)
 {
-    return ngx_zookeeper_string_ready(rc ,value, value_len, stat, data);
+    ngx_zookeeper_string_ready(rc ,value, value_len, stat, data);
 }
 
 static int
@@ -813,7 +871,6 @@ ngx_zookeeper_get_childrens_completition(lua_State * L, void *data)
         return;
     }
 
-    lua_newtable(L);
     lua_createtable(L, g_r->count, 0);
 
     for (j = 0; j < g_r->count; ++j)
@@ -965,13 +1022,21 @@ ngx_zookeeper_set_completition(lua_State * L, void *data)
 static void
 ngx_zookeeper_set_ready(int rc, const struct Stat *stat, const void *data)
 {
-    return ngx_zookeeper_void_ready(rc, data);
+    result_t *r = (result_t *) data;
+
+    ngx_zookeeper_void_ready(rc, data);
+
+    if (stat)
+    {
+        memcpy(&r->stat, stat, sizeof(struct Stat));
+    }
 }
 
 static int
 ngx_zookeeper_aset(lua_State * L)
 {
     int rc;
+    lua_Integer version = -1;
     str_t path, value;
     result_t *r;
 
@@ -985,9 +1050,11 @@ ngx_zookeeper_aset(lua_State * L)
         return ngx_zookeeper_lua_error(L, "aset", "not connected");
     }
 
-    if (lua_gettop(L) != 2)
+    rc = lua_gettop(L); 
+
+    if (rc != 2 && rc != 3)
     {
-        return ngx_zookeeper_lua_error(L, "aset", "exactly 2 arguments expected");
+        return ngx_zookeeper_lua_error(L, "aset", "exactly 2 or 3 arguments expected");
     }
 
     r = alloc_result();
@@ -999,9 +1066,14 @@ ngx_zookeeper_aset(lua_State * L)
     path.data = luaL_checklstring(L, 1, &path.len);
     value.data = luaL_checklstring(L, 2, &value.len);
 
+    if (rc == 3)
+    {
+        version = luaL_checkinteger(L, 3);
+    }
+
     r->completition_fn = ngx_zookeeper_set_completition;
 
-    rc = zoo_aset(zoo.handle, path.data, value.data, value.len, -1, ngx_zookeeper_set_ready, r);
+    rc = zoo_aset(zoo.handle, path.data, value.data, value.len, version, ngx_zookeeper_set_ready, r);
     if (rc != ZOK)
     {
         free_result(r);
@@ -1025,7 +1097,7 @@ ngx_zookeeper_create_completition(lua_State * L, void *data)
 static void
 ngx_zookeeper_create_ready(int rc, const char *value, const void *data)
 {
-    return ngx_zookeeper_string_ready(rc, value, value ? strlen(value) : 0, NULL, data);
+    ngx_zookeeper_string_ready(rc, value, value ? strlen(value) : 0, NULL, data);
 }
 
 static int
@@ -1132,4 +1204,3 @@ ngx_zookeeper_adelete(lua_State * L)
 
     return 2;
 }
-
