@@ -135,6 +135,10 @@ function _M.create(znode, value, flags)
   return completed and not err, result, err
 end
 
+function _M.create(znode, value)
+  return _M.create(znode, value, 0)
+end
+
 function _M.delete(znode)
   local ok, sc = zoo.adelete(znode)
   
