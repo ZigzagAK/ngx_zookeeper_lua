@@ -13,7 +13,7 @@ local _M = {
 
   errors = {
       ZOO_TIMEOUT = "TIMEOUT"
-  }
+  },
 
   flags = {
       ZOO_EPHEMERAL = ffi.C.ZOO_EPHEMERAL,
