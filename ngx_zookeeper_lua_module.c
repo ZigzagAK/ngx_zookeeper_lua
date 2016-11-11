@@ -32,11 +32,19 @@ static char *
 ngx_http_zookeeper_lua_log_level(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 static char *
 ngx_http_zookeeper_lua_recv_timeout(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
+static char *
+ngx_http_zookeeper_lua_read_only(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
+static char *
+ngx_http_zookeeper_lua_instances(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 
 typedef struct
 {
     ngx_str_t hosts;
     ngx_int_t recv_timeout;
+    int init_flags;
+    ngx_str_t instances_path;
+    ngx_str_t instance;
+    ngx_str_t instance_value;
     ZooLogLevel log_level;
 } ngx_http_zookeeper_lua_module_main_conf_t;
 
@@ -58,6 +66,20 @@ static ngx_command_t ngx_http_zookeeper_lua_commands[] = {
     { ngx_string("zookeeper_recv_timeout"),
       NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE1,
       ngx_http_zookeeper_lua_recv_timeout,
+      0,
+      0,
+      NULL },
+
+    { ngx_string("zookeeper_instances"),
+      NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE2,
+      ngx_http_zookeeper_lua_instances,
+      0,
+      0,
+      NULL },
+
+    { ngx_string("zookeeper_read_only"),
+      NGX_HTTP_MAIN_CONF|NGX_CONF_NOARGS,
+      ngx_http_zookeeper_lua_read_only,
       0,
       0,
       NULL },
@@ -104,6 +126,7 @@ ngx_http_zookeeper_lua_create_main_conf(ngx_conf_t *cf)
 
     conf->log_level = ZOO_LOG_LEVEL_ERROR;
     conf->recv_timeout = 10000;
+    conf->init_flags = 0;
 
     return conf;
 }
@@ -170,6 +193,36 @@ ngx_http_zookeeper_lua_recv_timeout(ngx_conf_t *cf, ngx_command_t *cmd, void *co
     {
         return "invalid value (1-60000 mseconds)";
     }
+
+    return NGX_CONF_OK;
+}
+
+static char *
+ngx_http_zookeeper_lua_read_only(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+{
+    // ngx_http_zookeeper_lua_module_main_conf_t *zookeeper_conf = conf;
+    // Temporary unsupported
+    // zookeeper_conf->init_flags = ZOO_READONLY;
+    return NGX_CONF_OK;
+}
+
+static char *
+ngx_http_zookeeper_lua_instances(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+{
+    ngx_http_zookeeper_lua_module_main_conf_t *zookeeper_conf = conf;
+    ngx_str_t *values = cf->args->elts;
+
+    zookeeper_conf->instances_path = values[1];
+    zookeeper_conf->instance_value = values[2];
+
+    zookeeper_conf->instance.data = ngx_pcalloc(cf->pool, 1024);
+    if (conf == NULL)
+    {
+        return NULL;
+    }
+
+    ngx_snprintf(zookeeper_conf->instance.data, 50, "%s/%d%l", zookeeper_conf->instances_path.data, ngx_getpid(), ngx_current_msec);
+    zookeeper_conf->instance.len = ngx_strlen(zookeeper_conf->instance.data);
 
     return NGX_CONF_OK;
 }
@@ -321,6 +374,9 @@ session_watcher(zhandle_t *zh,
                 const char *path,
                 void* context);
 
+static void
+ngx_zookeeper_create_ready(int rc, const char *value, const void *data);
+
 static ngx_int_t
 initialize(volatile ngx_cycle_t *cycle)
 {
@@ -336,7 +392,7 @@ initialize(volatile ngx_cycle_t *cycle)
                                  zookeeper_conf->recv_timeout,
                                  zoo.client_id,
                                  0,
-                                 0,
+                                 zookeeper_conf->init_flags,
                                  ngx_log_message);
 
     if (!zoo.handle)
@@ -348,7 +404,7 @@ initialize(volatile ngx_cycle_t *cycle)
     }
 
     ngx_log_error(NGX_LOG_INFO, cycle->log, 0,
-                  "Zookeeper connector has been initialized");
+                  "Zookeeper connector has been initialized in %s mode", zookeeper_conf->init_flags == ZOO_READONLY ? "read only" : "read/write");
 
     return NGX_OK;
 }
@@ -364,10 +420,31 @@ session_watcher(zhandle_t *zh,
     {
         if (state == ZOO_CONNECTED_STATE)
         {
+            ngx_http_zookeeper_lua_module_main_conf_t *zookeeper_conf = ngx_http_cycle_get_module_main_conf(ngx_cycle, ngx_zookeeper_lua_module);
+
             zoo.connected = 1;
             zoo.client_id = zoo_client_id(zh);
+
             ngx_log_error(NGX_LOG_INFO, ngx_cycle->log, 0,
                           "Zookeeper: received a connected event");
+
+            if (zookeeper_conf->instances_path.data)
+            {
+                int rc;
+                rc = zoo_acreate(zoo.handle, (const char *)zookeeper_conf->instance.data,
+                                             (const char *)zookeeper_conf->instance_value.data, zookeeper_conf->instance_value.len,
+                                &ZOO_OPEN_ACL_UNSAFE, ZOO_EPHEMERAL, ngx_zookeeper_create_ready, 0);
+                if (rc != ZOK)
+                {
+                    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
+                                  "Zookeeper: error register instance: %s", rc_str_s(rc));
+                }
+                else
+                {
+                    ngx_log_error(NGX_LOG_INFO, ngx_cycle->log, 0,
+                                  "Zookeeper register nginx instance %s", zookeeper_conf->instance.data);
+                }
+            }
         } else if (state == ZOO_CONNECTING_STATE)
         {
             if (zoo.connected == 1)
@@ -719,6 +796,16 @@ ngx_zookeeper_string_ready(int rc, const char *value, int value_len, const struc
 {
     result_t *r = (result_t *) data;
     string_result_t *g_r;
+
+    if (!r)
+    {
+        if (rc != ZOK)
+        {
+            ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
+                          "Zookeeper error: %s", rc_str_s(rc));
+        }
+        return;
+    }
 
     spinlock_lock(&r->lock);
 
@@ -1106,7 +1193,7 @@ ngx_zookeeper_create_ready(int rc, const char *value, const void *data)
 static int
 ngx_zookeeper_acreate(lua_State * L)
 {
-    int rc;
+    int rc, flags = 0;
     str_t path, value;
     result_t *r;
 
@@ -1120,9 +1207,9 @@ ngx_zookeeper_acreate(lua_State * L)
         return ngx_zookeeper_lua_error(L, "acreate", "not connected");
     }
 
-    if (lua_gettop(L) != 2)
+    if (lua_gettop(L) != 2 && lua_gettop(L) != 3)
     {
-        return ngx_zookeeper_lua_error(L, "acreate", "exactly 2 arguments expected");
+        return ngx_zookeeper_lua_error(L, "acreate", "exactly 2 or 3 arguments expected");
     }
 
     r = alloc_result();
@@ -1136,7 +1223,12 @@ ngx_zookeeper_acreate(lua_State * L)
 
     r->completition_fn = ngx_zookeeper_create_completition;
 
-    rc = zoo_acreate(zoo.handle, path.data, value.data, value.len, &ZOO_OPEN_ACL_UNSAFE, 0, ngx_zookeeper_create_ready, r);
+    if (lua_gettop(L) == 3)
+    {
+        flags = luaL_checkinteger(L, 3);
+    }
+
+    rc = zoo_acreate(zoo.handle, path.data, value.data, value.len, &ZOO_OPEN_ACL_UNSAFE, flags, ngx_zookeeper_create_ready, r);
     if (rc != ZOK)
     {
         free_result(r);
