@@ -1,4 +1,5 @@
 local zoo = require 'ngx.zookeeper'
+local ffi = require 'ffi'
 
 local timeout = zoo.timeout()
 
