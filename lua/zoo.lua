@@ -2,11 +2,21 @@ local zoo = require 'ngx.zookeeper'
 
 local timeout = zoo.timeout()
 
+ffi.cdef[[
+  extern const int ZOO_EPHEMERAL;
+  extern const int ZOO_SEQUENCE;
+]]
+
 local _M = {
   _VERSION = '0.99',
 
   errors = {
       ZOO_TIMEOUT = "TIMEOUT"
+  }
+
+  flags = {
+      ZOO_EPHEMERAL = ffi.C.ZOO_EPHEMERAL,
+      ZOO_SEQUENCE = ffi.C.ZOO_SEQUENCE
   }
 }
 
@@ -96,12 +106,12 @@ function _M.set(znode, value, version)
   return completed and not err, err, stat
 end
 
-function _M.create(znode, value)
+function _M.create(znode, value, flags)
   if not value then
     value = ""
   end
 
-  local ok, sc = zoo.acreate(znode, value)
+  local ok, sc = zoo.acreate(znode, value, flags)
   
   if not ok then
     return ok, nil, sc
