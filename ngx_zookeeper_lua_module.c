@@ -428,7 +428,7 @@ session_watcher(zhandle_t *zh,
             ngx_log_error(NGX_LOG_INFO, ngx_cycle->log, 0,
                           "Zookeeper: received a connected event");
 
-            if (zookeeper_conf->instances_path.data)
+            if (ngx_worker == 0 && zookeeper_conf->instances_path.data)
             {
                 int rc;
                 rc = zoo_acreate(zoo.handle, (const char *)zookeeper_conf->instance.data,
