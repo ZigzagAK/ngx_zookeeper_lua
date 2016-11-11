@@ -7,6 +7,11 @@ local _M = {
 
   errors = {
       ZOO_TIMEOUT = "TIMEOUT"
+  },
+
+  flags = {
+      ZOO_EPHEMERAL = bit.lshift(1, 0),
+      ZOO_SEQUENCE = bit.lshift(1, 1)
   }
 }
 
@@ -96,12 +101,16 @@ function _M.set(znode, value, version)
   return completed and not err, err, stat
 end
 
-function _M.create(znode, value)
+function _M.create(znode, value, flags)
   if not value then
     value = ""
   end
 
-  local ok, sc = zoo.acreate(znode, value)
+  if not flags then
+    flags = 0
+  end
+
+  local ok, sc = zoo.acreate(znode, value, flags)
 
   if not ok then
     return ok, nil, sc
