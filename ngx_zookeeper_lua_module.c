@@ -385,7 +385,10 @@ session_watcher(zhandle_t *zh,
                 zookeeper_close(zh);
                 bzero(&zoo, sizeof(zoo));
             }
-            initialize(ngx_cycle);
+            if (!ngx_exiting)
+            {
+                initialize(ngx_cycle);
+            }
         }
     }
     ngx_log_debug2(NGX_LOG_DEBUG_HTTP, ngx_cycle->log, 0,
