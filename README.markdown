@@ -49,7 +49,7 @@ http {
         local ok, value, err, stat = zoo.get(ngx.var.arg_znode)
         if ok then
           if not value then
-            value ""
+            value = ""
           end
           ngx.say(value)
           ngx.say("czxid:" .. stat.czxid)
