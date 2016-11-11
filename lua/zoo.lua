@@ -7,11 +7,6 @@ local _M = {
 
   errors = {
       ZOO_TIMEOUT = "TIMEOUT"
-  },
-
-  flags = {
-      ZOO_EPHEMERAL = 1,
-      ZOO_SEQUENCE = 2
   }
 }
 
@@ -101,16 +96,12 @@ function _M.set(znode, value, version)
   return completed and not err, err, stat
 end
 
-function _M.create(znode, value, flags)
+function _M.create(znode, value)
   if not value then
     value = ""
   end
 
-  if not flags then
-    flags = 0
-  end
-
-  local ok, sc = zoo.acreate(znode, value, flags)
+  local ok, sc = zoo.acreate(znode, value)
 
   if not ok then
     return ok, nil, sc
