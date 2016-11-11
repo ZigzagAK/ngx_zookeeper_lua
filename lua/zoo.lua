@@ -1,12 +1,6 @@
 local zoo = require 'ngx.zookeeper'
-local ffi = require 'ffi'
 
 local timeout = zoo.timeout()
-
-ffi.cdef[[
-  extern const int ZOO_EPHEMERAL;
-  extern const int ZOO_SEQUENCE;
-]]
 
 local _M = {
   _VERSION = '0.99',
@@ -16,8 +10,8 @@ local _M = {
   },
 
   flags = {
-      ZOO_EPHEMERAL = ffi.C.ZOO_EPHEMERAL,
-      ZOO_SEQUENCE = ffi.C.ZOO_SEQUENCE
+      ZOO_EPHEMERAL = 1,
+      ZOO_SEQUENCE = 2
   }
 }
 
@@ -27,7 +21,7 @@ end
 
 function _M.get(znode)
   local ok, sc = zoo.aget(znode)
-  
+
   if not ok then
     return ok, nil, sc, nil
   end
@@ -85,14 +79,14 @@ function _M.set(znode, value, version)
   end
 
   local ok, sc = zoo.aset(znode, value, version)
-  
+
   if not ok then
     return ok, nil, sc, nil
   end
 
   local time_limit = timeto()
   local completed, err, stat
-  
+
   while not completed and ngx.now() * 1000 < time_limit
   do
     ngx.sleep(0.001)
@@ -112,8 +106,12 @@ function _M.create(znode, value, flags)
     value = ""
   end
 
+  if not flags then
+    flags = 0
+  end
+
   local ok, sc = zoo.acreate(znode, value, flags)
-  
+
   if not ok then
     return ok, nil, sc
   end
@@ -135,13 +133,9 @@ function _M.create(znode, value, flags)
   return completed and not err, result, err
 end
 
-function _M.create(znode, value)
-  return _M.create(znode, value, 0)
-end
-
 function _M.delete(znode)
   local ok, sc = zoo.adelete(znode)
-  
+
   if not ok then
     return ok, sc
   end
