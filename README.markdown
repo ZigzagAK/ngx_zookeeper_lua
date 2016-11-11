@@ -38,6 +38,7 @@ http {
   zookeeper              127.0.0.1:2181;
   zookeeper_log_level    debug;
   zookeeper_recv_timeout 5000;
+  zookeeper_instances    /services/nginx 127.0.0.1:8080;
 
   server {
     listen 4444;
@@ -114,6 +115,18 @@ http {
         end
       }
     }
+    
+    location = /ehcreate {
+      content_by_lua_block {
+        local zoo = require 'zoo'
+        local ok, r, err = zoo.create(ngx.var.arg_znode, ngx.var.arg_value, zoo.flags.ZOO_EPHEMERAL)
+        if ok then
+          ngx.say(r)
+        else
+          ngx.say("ERR:" .. err)
+        end
+      }
+    }
 
     location = /delete {
       content_by_lua_block {
@@ -161,6 +174,14 @@ zookeeper_recv_timeout
 
 Configure Zookeeper socket recv timeout.
 
+zookeeper_instances
+--------------
+* **syntax**: `zookeeper_instances <path/to/instances> <host:port>`
+* **default**: `none`
+* **context**: `http`
+
+Register nginx in Zookeeper ethemeral node.
+
 [Back to TOC](#table-of-contents)
 
 Methods
@@ -200,11 +221,12 @@ Returns true and znode information on success, or false and a string describing 
 
 create
 -------------
-**syntax:** `ok, r, err = zoo.create(znode, value)`
+**syntax:** `ok, r, err = zoo.create(znode, value, mode)`
 
 **context:** *&#42;_by_lua&#42;*
 
 Create the `znode` with initial `value`.
+`mode`: flags.ZOO_EPHEMERAL, flags.ZOO_SEQUENCE
 
 Returns true and new `znode` path on success, or false and a string describing an error otherwise.
 
