@@ -3,7 +3,7 @@ local zoo = require 'ngx.zookeeper'
 local timeout = zoo.timeout()
 
 local _M = {
-  _VERSION = '0.99',
+  _VERSION = '1.0.0',
 
   errors = {
       ZOO_TIMEOUT = "TIMEOUT"
