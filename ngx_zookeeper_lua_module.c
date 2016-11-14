@@ -502,6 +502,7 @@ ngx_zookeeper_lua_exit_worker(ngx_cycle_t *cycle)
                   "Zookeeper connector has been destroyed");
 }
 
+static int ngx_zookeeper_connected(lua_State * L);
 static int ngx_zookeeper_aget(lua_State * L);
 static int ngx_zookeeper_aset(lua_State * L);
 static int ngx_zookeeper_aget_childrens(lua_State * L);
@@ -514,7 +515,10 @@ static int ngx_zookeeper_forgot(lua_State * L);
 static int
 ngx_zookeeper_lua_create_module(lua_State * L)
 {
-    lua_createtable(L, 0, 8);
+    lua_createtable(L, 0, 9);
+
+    lua_pushcfunction(L, ngx_zookeeper_connected);
+    lua_setfield(L, -2, "connected");
 
     lua_pushcfunction(L, ngx_zookeeper_aget);
     lua_setfield(L, -2, "aget");
@@ -609,6 +613,19 @@ spinlock_unlock(ngx_atomic_t *lock)
 {
     *lock = 0;
     ngx_memory_barrier();
+}
+
+static int
+ngx_zookeeper_connected(lua_State * L)
+{
+    if (lua_gettop(L))
+    {
+        return ngx_zookeeper_lua_error(L, "connected", "no arguments expected");
+    }
+
+    lua_pushboolean(L, zoo.handle && zoo.connected);
+
+    return 1;
 }
 
 static result_t *

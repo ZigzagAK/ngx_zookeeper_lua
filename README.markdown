@@ -12,6 +12,7 @@ Table of Contents
 * [Description](#description)
 * [Configuration directives](#configuration-directives)
 * [Methods](#methods)
+  * [connected](#connected)
   * [get](#get)
   * [childrens](#childrens)
   * [set](#set)
@@ -189,6 +190,16 @@ Register nginx in Zookeeper ethemeral node.
 
 Methods
 =======
+
+connected
+-------------
+**syntax:** `connected = zoo.connected()`
+
+**context:** *&#42;_by_lua&#42;*
+
+Return status of Zookeeper connection.
+
+Returns true or false.
 
 get
 -------------

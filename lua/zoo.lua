@@ -157,4 +157,8 @@ function _M.delete(znode)
   return completed and not err, err
 end
 
+function _M.connected()
+  return zoo.connected()
+end
+
 return _M
