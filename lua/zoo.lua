@@ -1,4 +1,5 @@
 local zoo = require 'ngx.zookeeper'
+local system = require "system"
 
 local timeout = zoo.timeout()
 
@@ -19,6 +20,14 @@ local function timeto()
   return ngx.now() * 1000 + timeout
 end
 
+local function sleep(sec)
+  local ok = pcall(ngx.sleep, sec)
+  if not ok then
+    ngx.log(ngx.WARN, "blocking sleep function is used")
+    system.sleep(sec)
+  end
+end
+
 function _M.get(znode)
   local ok, sc = zoo.aget(znode)
 
@@ -31,7 +40,7 @@ function _M.get(znode)
 
   while not completed and ngx.now() * 1000 < time_limit
   do
-    ngx.sleep(0.001)
+    sleep(0.001)
     completed, value, err, stat = zoo.check_completition(sc)
   end
 
@@ -55,7 +64,7 @@ function _M.childrens(znode)
 
   while not completed and ngx.now() * 1000 < time_limit
   do
-    ngx.sleep(0.001)
+    sleep(0.001)
     completed, childs, err = zoo.check_completition(sc)
   end
 
@@ -89,7 +98,7 @@ function _M.set(znode, value, version)
 
   while not completed and ngx.now() * 1000 < time_limit
   do
-    ngx.sleep(0.001)
+    sleep(0.001)
     completed, _, err, stat = zoo.check_completition(sc)
   end
 
@@ -121,7 +130,7 @@ function _M.create(znode, value, flags)
 
   while not completed and ngx.now() * 1000 < time_limit
   do
-    ngx.sleep(0.001)
+    sleep(0.001)
     completed, result, err = zoo.check_completition(sc)
   end
 
@@ -145,7 +154,7 @@ function _M.delete(znode)
 
   while not completed and ngx.now() * 1000 < time_limit
   do
-    ngx.sleep(0.001)
+    sleep(0.001)
     completed, _, err = zoo.check_completition(sc)
   end
 
