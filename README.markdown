@@ -44,103 +44,145 @@ http {
   server {
     listen 4444;
 
+    default_type application/json;
+
+    server_name zoo;
+
     location = /get {
       content_by_lua_block {
-        local zoo = require 'zoo'
+        local zoo = require "zoo"
+        local cjson = require "cjson"
+
         local ok, value, err, stat = zoo.get(ngx.var.arg_znode)
+        local r
+
         if ok then
           if not value then
             value = ""
           end
-          ngx.say(value)
-          ngx.say("czxid:" .. stat.czxid)
-          ngx.say("mzxid:" .. stat.mzxid)
-          ngx.say("ctime:" .. stat.ctime)
-          ngx.say("mtime:" .. stat.mtime)
-          ngx.say("version:" .. stat.version)
-          ngx.say("cversion:" .. stat.cversion)
-          ngx.say("aversion:" .. stat.aversion)
-          ngx.say("ephemeralOwner:" .. stat.ephemeralOwner)
-          ngx.say("dataLength:" .. stat.dataLength)
-          ngx.say("numChildren:" .. stat.numChildren)
-          ngx.say("pzxid:" .. stat.pzxid)
+          r = { value = value, stat = stat }
         else
-          ngx.say(err)
+          r = { error = err }
         end
+
+        ngx.say(cjson.encode(r))
       }
     }
 
     location = /childrens {
       content_by_lua_block {
-        local zoo = require 'zoo'
+        local zoo = require "zoo"
+        local cjson = require "cjson"
+
         local ok, childs, err = zoo.childrens(ngx.var.arg_znode)
+        local r
+
         if ok then
-          for _, child in pairs(childs)
-          do
-            ngx.say(child)
-          end
+          r = childs
         else
-          ngx.say(err)
+          r = { error = err }
         end
+
+        ngx.say(cjson.encode(r))
       }
     }
 
     location = /set {
       content_by_lua_block {
-        local zoo = require 'zoo'
+        local zoo = require "zoo"
+        local cjson = require "cjson"
+
         local ok, err, stat = zoo.set(ngx.var.arg_znode, ngx.var.arg_value, ngx.var.arg_version)
+        local r
+
         if ok then
-          ngx.say("Stored")
-          ngx.say("czxid:" .. stat.czxid)
-          ngx.say("mzxid:" .. stat.mzxid)
-          ngx.say("ctime:" .. stat.ctime)
-          ngx.say("mtime:" .. stat.mtime)
-          ngx.say("version:" .. stat.version)
-          ngx.say("cversion:" .. stat.cversion)
-          ngx.say("aversion:" .. stat.aversion)
-          ngx.say("ephemeralOwner:" .. stat.ephemeralOwner)
-          ngx.say("dataLength:" .. stat.dataLength)
-          ngx.say("numChildren:" .. stat.numChildren)
-          ngx.say("pzxid:" .. stat.pzxid)
+          r = { value = ngx.var.arg_value, stat = stat }
         else
-          ngx.say(err)
+          r = { error = err }
         end
+
+        ngx.say(cjson.encode(r))
       }
     }
 
     location = /create {
       content_by_lua_block {
-        local zoo = require 'zoo'
+        local zoo = require "zoo"
+        local cjson = require "cjson"
+
         local ok, r, err = zoo.create(ngx.var.arg_znode, ngx.var.arg_value)
+
         if ok then
-          ngx.say(r)
+          r = { znode = r }
         else
-          ngx.say("ERR:" .. err)
+          r = { error = err }
         end
-      }
-    }
-    
-    location = /ehcreate {
-      content_by_lua_block {
-        local zoo = require 'zoo'
-        local ok, r, err = zoo.create(ngx.var.arg_znode, ngx.var.arg_value, zoo.flags.ZOO_EPHEMERAL)
-        if ok then
-          ngx.say(r)
-        else
-          ngx.say("ERR:" .. err)
-        end
+
+        ngx.say(cjson.encode(r))
       }
     }
 
     location = /delete {
       content_by_lua_block {
-        local zoo = require 'zoo'
+        local zoo = require "zoo"
+        local cjson = require "cjson"
+
         local ok, err = zoo.delete(ngx.var.arg_znode)
         if ok then
-          ngx.say("Deleted")
+          r = { znode = "deleted" }
         else
-          ngx.say(err)
+          r = { error = err }
         end
+
+        ngx.say(cjson.encode(r))
+      }
+    }
+
+    location = /tree {
+      content_by_lua_block {
+        local zoo = require 'zoo'
+
+        local subtree
+        subtree = function(znode)
+          local ok, value, err, stat = zoo.get(znode)
+          if not ok then
+            error(err)
+          end
+
+          if not value then
+            value = ""
+          end
+
+          local tree = { value = value }
+
+          if stat then
+            tree.stat = stat
+          end
+
+          if stat and stat.numChildren == 0 then
+            return tree
+          end
+
+          local ok, childs, err = zoo.childrens(znode)
+          if not ok then
+            error(err)
+          end
+
+          if not znode:match("/$") then
+            znode = znode .. "/"
+          end
+
+          for _, child in pairs(childs)
+          do
+            tree[child] = subtree(znode .. child)
+          end
+
+          return tree
+        end
+
+        local cjson = require "cjson"
+
+        ngx.say(cjson.encode(subtree(ngx.var.arg_znode)))
       }
     }
   }
