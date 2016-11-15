@@ -155,7 +155,7 @@ http {
 
           local tree = { value = value }
 
-          if stat then
+          if stat and ngx.var.arg_stat and ngx.var.arg_stat:match("[1yY]") then
             tree.stat = stat
           end
 
