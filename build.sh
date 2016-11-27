@@ -243,7 +243,10 @@ function install_resty_module() {
   fi
   echo "Install $2/$3"
   unzip -q $2-$5.zip
-  cp -r $2-$5/$3 "$INSTALL_PREFIX/nginx-$VERSION-zoo/$4"
+  if [ ! -e "$INSTALL_PREFIX/nginx-$VERSION-sd/$4" ]; then
+    mkdir -p "$INSTALL_PREFIX/nginx-$VERSION-sd/$4"
+  fi
+  cp -r $2-$5/$3 "$INSTALL_PREFIX/nginx-$VERSION-sd/$4/"
   rm -rf $2-$5
 }
 
