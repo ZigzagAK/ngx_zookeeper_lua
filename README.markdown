@@ -20,6 +20,7 @@ Table of Contents
   * [set](#set)
   * [create](#create)
   * [delete](#delete)
+* [Latest build](#latest_build)
 
 Status
 ======
@@ -299,3 +300,6 @@ Delete the `znode`.
 Returns true on success, or false and a string describing an error otherwise.
 
 [Back to TOC](#table-of-contents)
+
+# Latest build
+  * https://drone.io/github.com/ZigzagAK/nginx_build/files
