@@ -20,7 +20,7 @@ Table of Contents
   * [set](#set)
   * [create](#create)
   * [delete](#delete)
-* [Latest build](#latest_build)
+* [Latest build](#latest-build)
 
 Status
 ======
