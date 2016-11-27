@@ -302,4 +302,4 @@ Returns true on success, or false and a string describing an error otherwise.
 [Back to TOC](#table-of-contents)
 
 # Latest build
-  * https://drone.io/github.com/ZigzagAK/nginx_build/files
+  * https://drone.io/github.com/ZigzagAK/ngx_zookeeper_lua/files
