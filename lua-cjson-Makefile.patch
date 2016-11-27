@@ -1,0 +1,17 @@
+--- lua-cjson/Makefile	2016-11-07 08:47:47.000000000 +0300
++++ lua-cjson/Makefile	2016-10-26 00:04:44.000000000 +0300
+@@ -13,12 +13,12 @@
+ ##### Build defaults #####
+ LUA_VERSION =       5.1
+ TARGET =            cjson.so
+-PREFIX =            /usr/local
++PREFIX ?=           /usr/local
+ #CFLAGS =            -g -Wall -pedantic -fno-inline
+ CFLAGS =            -O3 -Wall -pedantic -DNDEBUG
+ CJSON_CFLAGS =      -fpic
+ CJSON_LDFLAGS =     -shared
+-LUA_INCLUDE_DIR ?=   $(PREFIX)/include
++LUA_INCLUDE_DIR ?=   $(PREFIX)/include/luajit-2.1
+ LUA_CMODULE_DIR ?=   $(PREFIX)/lib/lua/$(LUA_VERSION)
+ LUA_MODULE_DIR ?=    $(PREFIX)/share/lua/$(LUA_VERSION)
+ LUA_BIN_DIR ?=       $(PREFIX)/bin
