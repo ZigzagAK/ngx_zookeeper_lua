@@ -269,11 +269,11 @@ Returns true and table of names on success, or false and a string describing an 
 
 set
 -------------
-**syntax:** `ok, err, stat = zoo.set(znode, value)`
+**syntax:** `ok, err, stat = zoo.set(znode, value, version)`
 
 **context:** *&#42;_by_lua&#42;*
 
-Set value of the `znode`.
+Set value of the `znode`. Version may be nil (no version check).
 `stat`: { czxid, mzxid, ctime, mtime, version, cversion, aversion, ephemeralOwner, dataLength, numChildren, pzxid }
 
 Returns true and znode information on success, or false and a string describing an error otherwise.
