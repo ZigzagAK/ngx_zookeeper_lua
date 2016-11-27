@@ -3,6 +3,8 @@ Name
 
 ngx_zookeeper_lua - Lua bindings to interract with Zookeeper.
 
+[![Build Status](https://drone.io/github.com/ZigzagAK/ngx_zookeeper_lua/status.png)](https://drone.io/github.com/ZigzagAK/ngx_zookeeper_lua/latest)
+
 Table of Contents
 =================
 
