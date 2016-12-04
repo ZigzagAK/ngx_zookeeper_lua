@@ -17,6 +17,7 @@ local _M = {
 }
 
 local function timeto()
+  ngx.update_time()
   return ngx.now() * 1000 + timeout
 end
 
@@ -142,6 +143,21 @@ function _M.create(znode, value, flags)
   return completed and not err, result, err
 end
 
+function _M.create_path(znode)
+  local path = "/"
+  
+  for p in znode:gmatch("/([^/]+)")
+  do
+    local ok, _, err = _M.create(path .. p)
+    if not ok and err ~= "Znode already exists" then
+      return ok, err
+    end
+    path = path .. p .. "/"
+  end
+
+  return true, nil
+end
+
 function _M.delete(znode)
   local ok, sc = zoo.adelete(znode)
 
@@ -164,6 +180,23 @@ function _M.delete(znode)
   end
 
   return completed and not err, err
+end
+
+function _M.delete_recursive(znode)
+  local ok, nodes, err = _M.childrens(znode)
+  if not ok then
+    return ok, err
+  end
+  
+  for _, node in ipairs(nodes)
+  do
+    ok, err = _M.delete_recursive(znode .. "/" .. node)
+    if not ok then
+      break
+    end
+  end
+
+  return _M.delete(znode)
 end
 
 function _M.connected()

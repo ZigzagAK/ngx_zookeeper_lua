@@ -58,9 +58,15 @@ function _M.create(znode, value)
   return r
 end
 
-function _M.delete(znode)
-  local ok, err = zoo.delete(ngx.var.arg_znode)
+function _M.delete(znode, recursive)
+  local ok, err
   local r
+
+  if recursive and recursive:match("[Yy1]") then
+    ok, err = zoo.delete_recursive(znode)
+  else
+    ok, err = zoo.delete(znode)
+  end
   
   if ok then
     r = { znode = "deleted" }
@@ -110,8 +116,55 @@ function _M.tree(znode, need_stat)
 
     return tree
   end
+
+  local ok, r = pcall(subtree, znode)
   
-  return subtree(znode)
+  if not ok then
+    r = { error = r }
+  end
+  
+  return r
+end
+
+function _M.import(root, json)
+  local cjson = require "cjson"
+
+  local create_in_depth = function(zoo_path)
+    local ok, err = zoo.create_path(zoo_path)
+    if not ok then
+      error(err)
+    end
+  end
+
+  local set = function(path, value)
+    ngx.log(ngx.DEBUG, "zoo import: set znode=" .. path .. ", value=" .. value)
+    local ok, err, _ = zoo.set(path, value)
+    if not ok then
+      error(err)
+    end
+  end
+
+  local save_subtree
+  save_subtree = function(path, subtree)
+    for k, v in pairs(subtree)
+    do
+      if k ~= "value" and k ~= "stat" then
+        local znode_path = path .. "/" .. k
+        create_in_depth(znode_path)
+        if v.value and #v.value ~= 0 then
+          set(znode_path, v.value)
+        end
+        save_subtree(znode_path, v)
+      end
+    end
+  end
+
+  local ok, err = pcall(create_in_depth, root)
+  if not ok then
+    return ok, err
+  end
+
+  return pcall(save_subtree, root, cjson.decode(json))
 end
 
 return _M
