@@ -151,7 +151,7 @@ function _M.import(root, json)
       if k ~= "value" and k ~= "stat" then
         local znode_path = path .. "/" .. k
         create_in_depth(znode_path)
-        if v.value and #v.value ~= 0 then
+        if v.value then
           set(znode_path, v.value)
         end
         save_subtree(znode_path, v)
