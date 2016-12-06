@@ -90,14 +90,19 @@ function _M.tree(znode, need_stat)
       value = ""
     end
 
-    local tree = { value = value }
+    local tree = {}
 
     if need_stat and stat then
-      tree.stat = stat
+      tree = { value = value,
+               stat  = stat }
     end
 
     if stat and stat.numChildren == 0 then
-      return tree
+      return value
+    end
+
+    if #value ~= 0 then
+      tree.value = value
     end
 
     local ok, childs, err = zoo.childrens(znode)
@@ -151,10 +156,14 @@ function _M.import(root, json)
       if k ~= "value" and k ~= "stat" then
         local znode_path = path .. "/" .. k
         create_in_depth(znode_path)
-        if v.value then
-          set(znode_path, v.value)
+        if type(v) == "table" then
+          if v.value then
+            set(znode_path, v.value)
+          end
+          save_subtree(znode_path, v)
+        else
+          set(znode_path, v)
         end
-        save_subtree(znode_path, v)
       end
     end
   end
