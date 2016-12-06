@@ -1,7 +1,8 @@
 
 	html {
-		background-color: #5e8ec6;
+		background-color: #ebf0fa;
 		background-image: -moz-linear-gradient(center top , #5e8ec6, #E4E4E4);
+		margin-top:50px;
 	}
 
 	body {
@@ -14,7 +15,7 @@
 	#page {
 		background-color: #FFFFFF;
 		border-radius: 5px 5px 5px 5px;
-		box-shadow: 0 0 5px #000000;
+		box-shadow: 0 0 10px #000000;
 		clear: left;
 		padding: 10px 0 0;
 		margin-top:50px;
@@ -31,21 +32,9 @@
 		z-index:100;
 	}
 
-	#logo {
-		display: block;
-		height: 120px;
-		overflow: hidden;
-		text-indent: -9999px;
-		width: 120px;
-		margin-left:-80px;
-		margin-bottom:-50px;
-		float:left;
-	}
-
 	#logo-header{
 		margin-top:5px;
 	}
-
 
 	a {
 		background: none repeat scroll 0 0 transparent;
@@ -116,8 +105,8 @@
 	}
 
 	#page article {
-		margin: 0 43px;
-		padding: 30px 0 20px;
+		margin: 0 20px;
+		padding: 20px 0 20px;
 	}
 
 	#page article h3 {
@@ -131,7 +120,7 @@
 		width: 500px;
 	}
 
-	#page #page-header h2 {
+	#page #page-header h1 {
 		color:#807f7f;
 		font-size: 20pt;
 		font-weight: bold;
@@ -145,7 +134,7 @@
 	}
 
 	#page #page-header {
-		background-color: #EEEEEE;
+		background-color: #FFFFFF;
 		background-image: -moz-linear-gradient(center top , #FFFFFF, #E4E4E4);
 		border-bottom: 5px solid #298f00;
 		position: relative;
@@ -170,7 +159,3 @@
 	}
 
 	.hide {display:none;}
-
-	div.demo {width:100%;text-align:center;font-weight:bold;color:#b7b7b7;margin-top:-38px;}
-
-	pre.demo {height:60px;border-color:#cdcbcb;background-color:white;}
