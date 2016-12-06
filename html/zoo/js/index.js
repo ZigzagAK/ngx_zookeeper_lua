@@ -13,7 +13,7 @@ var transforms = {
 			{'tag':'span','class':'name','html':'${name}'},
 			{'tag':'span','class':'value','html':function(obj) {
 				var value = getValue(obj.value);
-				if( value !== undefined ) return(" : " + value);
+				if( value !== undefined && value !== "''" ) return(" : " + value);
 				else return('');
 			}},
 			{'tag':'span','class':'type','html':''}
