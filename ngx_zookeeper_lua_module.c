@@ -221,7 +221,7 @@ ngx_http_zookeeper_lua_instances(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         return NULL;
     }
 
-    ngx_snprintf(zookeeper_conf->instance.data, 50, "%s/%d%l", zookeeper_conf->instances_path.data, ngx_getpid(), ngx_current_msec);
+    ngx_snprintf(zookeeper_conf->instance.data, 1024, "%s/%s", zookeeper_conf->instances_path.data, zookeeper_conf->instance_value.data);
     zookeeper_conf->instance.len = ngx_strlen(zookeeper_conf->instance.data);
 
     return NGX_CONF_OK;
@@ -232,11 +232,13 @@ typedef struct
     zhandle_t *handle;
     int connected;
     const clientid_t *client_id;
+    int registered;
 } zookeeper_t;
 
 static zookeeper_t zoo = {
     .handle = NULL,
     .connected = 0,
+    .registered = 0,
     .client_id = NULL
 };
 
@@ -368,14 +370,71 @@ rc_str(int rc)
 }
 
 static void
+ngx_zookeeper_register_ready(int rc, const char *value, const void *data)
+{
+    ngx_http_zookeeper_lua_module_main_conf_t *zookeeper_conf = (ngx_http_zookeeper_lua_module_main_conf_t *) data;
+
+    if (rc != ZOK)
+    {
+        if (rc != ZNODEEXISTS)
+        {
+            ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
+                          "Zookeeper can't register ephemeral node: %s", rc_str_s(rc));
+            zoo.registered = 0;
+        }
+        return;
+    }
+
+    ngx_log_error(NGX_LOG_INFO, ngx_cycle->log, 0,
+                  "Nginx has been registered, instance: %s", zookeeper_conf->instance.data);
+
+    zoo.registered = 1;
+
+    return;
+}
+
+static void
+ngx_zookeeper_register_callback(ngx_event_t *ev)
+{
+    ngx_http_zookeeper_lua_module_main_conf_t *zookeeper_conf = ngx_http_cycle_get_module_main_conf(ngx_cycle, ngx_zookeeper_lua_module);
+
+    if (zoo.registered != 0 || zoo.connected == 0)
+    {
+        goto settimer;
+    }
+
+    int rc;
+    rc = zoo_acreate(zoo.handle, (const char *)zookeeper_conf->instance.data, "", 0,
+                    &ZOO_OPEN_ACL_UNSAFE, ZOO_EPHEMERAL, ngx_zookeeper_register_ready, zookeeper_conf);
+
+    if (rc != ZOK)
+    {
+        ngx_log_error(NGX_LOG_ERR, ev->log, 0,
+                      "Zookeeper: error register instance: %s", rc_str_s(rc));
+    }
+
+settimer:
+
+    ngx_add_timer(ev, zookeeper_conf->recv_timeout * 2);
+}
+
+static void
+ngx_zookeeper_create_ready(int rc, const char *value, const void *data);
+
+static void
 session_watcher(zhandle_t *zh,
                 int type,
                 int state,
                 const char *path,
                 void* context);
 
-static void
-ngx_zookeeper_create_ready(int rc, const char *value, const void *data);
+static ngx_connection_t dumb_conn = {
+    .fd = -1
+};
+static ngx_event_t register_ev = {
+    .handler = ngx_zookeeper_register_callback,
+    .data = &dumb_conn
+};
 
 static ngx_int_t
 initialize(volatile ngx_cycle_t *cycle)
@@ -403,6 +462,12 @@ initialize(volatile ngx_cycle_t *cycle)
         return NGX_ERROR;
     }
 
+    if (ngx_worker == 0 && zookeeper_conf->instances_path.data)
+    {
+        register_ev.log = cycle->log;
+        ngx_add_timer(&register_ev, zookeeper_conf->recv_timeout * 2);
+    }
+
     ngx_log_error(NGX_LOG_INFO, cycle->log, 0,
                   "Zookeeper connector has been initialized in %s mode", zookeeper_conf->init_flags == ZOO_READONLY ? "read only" : "read/write");
 
@@ -420,31 +485,11 @@ session_watcher(zhandle_t *zh,
     {
         if (state == ZOO_CONNECTED_STATE)
         {
-            ngx_http_zookeeper_lua_module_main_conf_t *zookeeper_conf = ngx_http_cycle_get_module_main_conf(ngx_cycle, ngx_zookeeper_lua_module);
-
             zoo.connected = 1;
             zoo.client_id = zoo_client_id(zh);
 
             ngx_log_error(NGX_LOG_INFO, ngx_cycle->log, 0,
                           "Zookeeper: received a connected event");
-
-            if (ngx_worker == 0 && zookeeper_conf->instances_path.data)
-            {
-                int rc;
-                rc = zoo_acreate(zoo.handle, (const char *)zookeeper_conf->instance.data,
-                                             (const char *)zookeeper_conf->instance_value.data, zookeeper_conf->instance_value.len,
-                                &ZOO_OPEN_ACL_UNSAFE, ZOO_EPHEMERAL, ngx_zookeeper_create_ready, 0);
-                if (rc != ZOK)
-                {
-                    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                                  "Zookeeper: error register instance: %s", rc_str_s(rc));
-                }
-                else
-                {
-                    ngx_log_error(NGX_LOG_INFO, ngx_cycle->log, 0,
-                                  "Zookeeper register nginx instance %s", zookeeper_conf->instance.data);
-                }
-            }
         } else if (state == ZOO_CONNECTING_STATE)
         {
             if (zoo.connected == 1)
