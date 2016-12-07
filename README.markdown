@@ -48,6 +48,14 @@ http {
   zookeeper_recv_timeout 5000;
   zookeeper_instances    /services/nginx 127.0.0.1:8080;
 
+  lua_shared_dict config    64k;
+  lua_shared_dict zoo_cache 10m;
+
+  init_by_lua_block {
+    ngx.shared.config:set("zoo.cache.on", true)
+    ngx.shared.config:set("zoo.cache.ttl", 60)
+  }
+
   server {
     listen 4444;
 
