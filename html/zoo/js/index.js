@@ -10,7 +10,10 @@ var transforms = {
 				
 				return(classes.join(' '));
 			}},
-			{'tag':'span','class':'name','html':'${name}'},
+			{'tag':'span','class':'name','html':function(obj) {
+        if ( obj.name === 'value' && getValue(obj.value) === "''" ) return '';
+        return obj.name;
+			}},
 			{'tag':'span','class':'value','html':function(obj) {
 				var value = getValue(obj.value);
 				if( value !== undefined && value !== "''" ) return(" : " + value);
@@ -53,7 +56,7 @@ function getValue(obj) {
 		break;
 
 		case 'string':
-			return("'" + obj + "'");
+			return("'" + obj.replace('\0','') + "'");
 		break;
 
 		default:

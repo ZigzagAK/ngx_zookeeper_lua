@@ -1,14 +1,14 @@
 #page {min-height:600px;}
-.package {padding:3px;border-radius:2px;margin-top:3px;}
+.package {padding:3px;border-radius:3px;margin-top:3px;}
 .header {cursor:pointer;}
 
 .name {color:gray;}
 
-.array {background-color:#FFD8BB;border:thin solid #FFB780;}
-.object {background-color:#E7F1FE;border:thin solid #7DA2CE;}
-.string {color:red;}
-.number {color:blue;}
-.function {color:green;}
+.array {margin-left:12px;background-color:#FFD8BB;border:thin solid #FFB780;}
+.object {margin-left:12px;background-color:#E7F1FE;border:thin solid #7DA2CE;font-weight: bold;}
+.string {color:red;margin-left:28px;padding:3px;font-weight: normal;font-style: italic;}
+.number {color:blue;margin-left:28;padding:3px;font-weight: normal;font-style: italic;}
+.function {color:green;margin-left:28px;padding:3px;font-weight: normal;font-style: normal;}
 
 .open .children {display:block;}
 .closed .children {display:none;}

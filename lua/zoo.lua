@@ -1,5 +1,6 @@
 local zoo = require 'ngx.zookeeper'
 local system = require "system"
+local cjson = require "cjson"
 
 local timeout = zoo.timeout()
 
@@ -16,6 +17,12 @@ local _M = {
   }
 }
 
+local CACHE = ngx.shared.zoo_cache
+local CONFIG = ngx.shared.config
+
+local zoo_cache_on = CONFIG:get("zoo.cache.on") or true
+local zoo_cache_ttl = CONFIG:get("zoo.cache.ttl") or 60
+
 local function timeto()
   ngx.update_time()
   return ngx.now() * 1000 + timeout
@@ -29,7 +36,42 @@ local function sleep(sec)
   end
 end
 
+local function save_in_cache(k, v, stat)
+  if zoo_cache_on then
+    local cached = cjson.encode({ stat = stat, value = v })
+    local ok, err, _ = CACHE:set(k, cached, zoo_cache_ttl)
+    if ok then
+      ngx.log(ngx.DEBUG, "zoo set cached: ", k, "=", cached)
+    else
+      ngx.log(ngx.WARN, "zoo set cached: ", err)
+    end
+  end
+end
+
+local function get_from_cache(k)
+  if not zoo_cache_on then
+    return nil
+  end
+
+  local cached = CACHE:get(k)
+  
+  if not cached then
+    return nil
+  end
+
+  local r = cjson.decode(cached)
+
+  ngx.log(ngx.DEBUG, "zoo get cached: ", k, "=", cached)
+
+  return r
+end
+
 function _M.get(znode)
+  local cached = get_from_cache("v:" .. znode)
+  if cached then
+    return true, cached.value, nil, cached.stat
+  end
+
   local ok, sc = zoo.aget(znode)
 
   if not ok then
@@ -48,12 +90,19 @@ function _M.get(znode)
   if not completed then
     zoo.forgot(sc)
     err = _M.errors.ZOO_TIMEOUT
+  elseif not err then
+    save_in_cache("v:" .. znode, value, stat)
   end
 
   return completed and not err, value, err, stat
 end
 
 function _M.childrens(znode)
+  local cached = get_from_cache("c:" .. znode)
+  if cached then
+    return true, cached.value or {}, nil
+  end
+
   local ok, sc = zoo.achildrens(znode)
 
   if not ok then
@@ -76,11 +125,11 @@ function _M.childrens(znode)
 
   ok = completed and not err
 
-  if ok and not childs then
-    childs = {}
+  if ok then 
+    save_in_cache("c:" .. znode, childs, nil)
   end
 
-  return ok, childs, err
+  return ok, childs or {}, err
 end
 
 function _M.set(znode, value, version)
