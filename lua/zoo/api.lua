@@ -107,13 +107,7 @@ function _M.tree(znode, need_stat)
 
     local ok, childs, err = zoo.childrens(znode)
     if not ok then
-      if err == "Znode does not exist" then
-        zoo.clear_in_cache(znode)
-        ok, childs, err = zoo.childrens(znode)
-      end
-      if not ok then
-        error(err)
-      end
+      error(err)
     end
 
     if not znode:match("/$") then
@@ -122,14 +116,24 @@ function _M.tree(znode, need_stat)
 
     for _, child in pairs(childs)
     do
-      tree[child] = subtree(znode .. child)
+      local ok, r = pcall(subtree, znode .. child)
+      if not ok then
+        zoo.clear_in_cache(znode .. child)
+        r = subtree(znode .. child)
+      end
+      tree[child] = r
     end
 
     return tree
   end
 
   local ok, r = pcall(subtree, znode)
-  
+
+  if not ok then
+    zoo.clear_in_cache(znode)
+    ok, r = pcall(subtree, znode)
+  end
+
   if not ok then
     r = { error = r }
   end
