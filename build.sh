@@ -146,11 +146,12 @@ function build_release() {
 
 function download_module() {
   echo "Download $2 branch=$3"
-  rm -rf $2 $2-$3
+  rm -rf $2.tar.gz
   curl -s -L -O https://github.com/$1/$2/archive/$3.zip
-  mv $3.zip $2-$3.zip
-  unzip -q $2-$3.zip
-  mv $2-$3 ../build/$2
+  unzip -q $3.zip
+  mv $2-$3 $2
+  tar zcf $2.tar.gz $2
+  rm -rf $2 $3.zip
 }
 
 function build_cJSON() {
@@ -167,25 +168,33 @@ function build_cJSON() {
 function download_nginx() {
   echo "Download nginx-$VERSION"
   curl -s -L -O http://nginx.org/download/nginx-$VERSION.tar.gz
-  tar zxf nginx-$VERSION.tar.gz -C ../build
 }
 
 function download_luajit() {
   echo "Download LuaJIT-$LUAJIT_VERSION"
   curl -s -L -O http://luajit.org/download/LuaJIT-$LUAJIT_VERSION.tar.gz
-  tar zxf LuaJIT-$LUAJIT_VERSION.tar.gz -C ../build
 }
 
 function download_zoo() {
   echo "Download Zookeeper-$ZOO_VERSION"
   curl -s -L -O http://www-eu.apache.org/dist/zookeeper/zookeeper-$ZOO_VERSION/zookeeper-$ZOO_VERSION.tar.gz
-  tar zxf zookeeper-$ZOO_VERSION.tar.gz -C ../build
 }
 
 function download_pcre() {
   echo "Download PCRE-$PCRE_VERSION"
   curl -s -L -O http://ftp.cs.stanford.edu/pub/exim/pcre/pcre-$PCRE_VERSION.tar.gz
-  tar zxf pcre-$PCRE_VERSION.tar.gz -C ../build
+}
+
+function extract_downloads() {
+  cd download
+
+  for d in $(ls -1 *.tar.gz)
+  do
+    echo "Extracting $d"
+    tar zxf $d -C ../build --no-overwrite-dir --keep-old-files 2>/dev/null
+  done
+
+  cd ..
 }
 
 function download() {
@@ -262,6 +271,7 @@ function build() {
 
 clean
 download
+extract_downloads
 build
 
 function install_resty_module() {
@@ -272,12 +282,26 @@ function install_resty_module() {
     mv $5.zip $2-$5.zip
   fi
   echo "Install $2/$3"
-  unzip -q $2-$5.zip
   if [ ! -e "$INSTALL_PREFIX/nginx-$VERSION$SUFFIX/$4" ]; then
     mkdir -p "$INSTALL_PREFIX/nginx-$VERSION$SUFFIX/$4"
   fi
-  cp -r $2-$5/$3 "$INSTALL_PREFIX/nginx-$VERSION$SUFFIX/$4/"
-  rm -rf $2-$5
+  if [ -e $2-$5.zip ]; then
+    unzip -q $2-$5.zip
+    cp -r $2-$5/$3 "$INSTALL_PREFIX/nginx-$VERSION$SUFFIX/$4/"
+    rm -rf $2-$5
+  elif [ -e $2-$5.tar.gz ]; then
+    tar zxf $2-$5.tar.gz
+    cp -r $2-$5/$3 "$INSTALL_PREFIX/nginx-$VERSION$SUFFIX/$4/"
+    rm -rf $2-$5
+  elif [ -e $2.zip ]; then
+    unzip -q $2.zip
+    cp -r $2/$3 "$INSTALL_PREFIX/nginx-$VERSION$SUFFIX/$4/"
+    rm -rf $2
+  elif [ -e $2.tar.gz ]; then
+    tar zxf $2.tar.gz
+    cp -r $2/$3 "$INSTALL_PREFIX/nginx-$VERSION$SUFFIX/$4/"
+    rm -rf $2
+  fi
 }
 
 function install_lua_modules() {

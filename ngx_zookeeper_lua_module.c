@@ -394,6 +394,9 @@ ngx_zookeeper_register_ready(int rc, const char *value, const void *data)
 }
 
 static void
+ngx_zookeeper_delete_ready(int rc, const void *data);
+
+static void
 ngx_zookeeper_register_callback(ngx_event_t *ev)
 {
     ngx_http_zookeeper_lua_module_main_conf_t *zookeeper_conf = ngx_http_cycle_get_module_main_conf(ngx_cycle, ngx_zookeeper_lua_module);
@@ -402,6 +405,9 @@ ngx_zookeeper_register_callback(ngx_event_t *ev)
     {
         goto settimer;
     }
+
+
+    zoo_adelete(zoo.handle, (const char *)zookeeper_conf->instance.data, -1, ngx_zookeeper_delete_ready, NULL);
 
     int rc;
     rc = zoo_acreate(zoo.handle, (const char *)zookeeper_conf->instance.data, "", 0,
@@ -498,6 +504,7 @@ session_watcher(zhandle_t *zh,
                               "Zookeeper: disconnected");
             }
             zoo.connected = 0;
+            zoo.registered = 0;
         } else if (state == ZOO_EXPIRED_SESSION_STATE)
         {
             if (zh != NULL)
@@ -931,6 +938,11 @@ static void
 ngx_zookeeper_void_ready(int rc, const void *data)
 {
     result_t *r = (result_t *) data;
+
+    if (r == NULL)
+    {
+        return;
+    }
 
     spinlock_lock(&r->lock);
 
