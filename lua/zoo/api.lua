@@ -107,7 +107,13 @@ function _M.tree(znode, need_stat)
 
     local ok, childs, err = zoo.childrens(znode)
     if not ok then
-      error(err)
+      if err == "Znode does not exist" then
+        zoo.clear_in_cache(znode)
+        ok, childs, err = zoo.childrens(znode)
+      end
+      if not ok then
+        error(err)
+      end
     end
 
     if not znode:match("/$") then

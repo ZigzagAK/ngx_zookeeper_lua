@@ -47,6 +47,11 @@ local function sleep(sec)
   end
 end
 
+function _M.clear_in_cache(znode)
+  CACHE:delete("c:" .. znode)
+  CACHE:delete("v:" .. znode)
+end
+
 local function save_in_cache(prefix, znode, v, stat)
   if not zoo_cache_on then
     return
