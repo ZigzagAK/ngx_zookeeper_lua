@@ -54,6 +54,10 @@ http {
   init_by_lua_block {
     ngx.shared.config:set("zoo.cache.on", true)
     ngx.shared.config:set("zoo.cache.ttl", 60)
+
+    ngx.shared.config:set("zoo.cache.path.ttl", '[' ..
+      '{ "path" : "/services/.*", "ttl" : 0 }' ..
+   ']')
   }
 
   server {

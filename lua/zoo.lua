@@ -22,6 +22,17 @@ local CONFIG = ngx.shared.config
 
 local zoo_cache_on = CONFIG:get("zoo.cache.on") or true
 local zoo_cache_ttl = CONFIG:get("zoo.cache.ttl") or 60
+local zoo_cache_path_ttl = cjson.decode(CONFIG:get("zoo.cache.path.ttl") or {})
+
+local function get_ttl(znode)
+  for _, z in ipairs(zoo_cache_path_ttl)
+  do
+    if znode:match(z.path) then
+      return z.ttl
+    end
+  end
+  return zoo_cache_ttl
+end
 
 local function timeto()
   ngx.update_time()
@@ -36,24 +47,33 @@ local function sleep(sec)
   end
 end
 
-local function save_in_cache(k, v, stat)
-  if zoo_cache_on then
-    local cached = cjson.encode({ stat = stat, value = v })
-    local ok, err, _ = CACHE:set(k, cached, zoo_cache_ttl)
-    if ok then
-      ngx.log(ngx.DEBUG, "zoo set cached: ", k, "=", cached)
-    else
-      ngx.log(ngx.WARN, "zoo set cached: ", err)
-    end
+local function save_in_cache(prefix, znode, v, stat)
+  if not zoo_cache_on then
+    return
+  end
+
+  local ttl = get_ttl(znode)
+  if ttl == 0 then
+    return
+  end
+    
+  local cached = cjson.encode({ stat = stat, value = v })
+    
+  local ok, err, _ = CACHE:set(prefix .. ":" .. znode, cached, zoo_cache_ttl)
+
+  if ok then
+    ngx.log(ngx.DEBUG, "zoo set cached: ttl=" .. ttl .. "s," .. znode, "=", cached)
+  else
+    ngx.log(ngx.WARN, "zoo set cached: ", err)
   end
 end
 
-local function get_from_cache(k)
+local function get_from_cache(prefix, znode)
   if not zoo_cache_on then
     return nil
   end
 
-  local cached = CACHE:get(k)
+  local cached = CACHE:get(prefix .. ":" .. znode)
   
   if not cached then
     return nil
@@ -61,13 +81,13 @@ local function get_from_cache(k)
 
   local r = cjson.decode(cached)
 
-  ngx.log(ngx.DEBUG, "zoo get cached: ", k, "=", cached)
+  ngx.log(ngx.DEBUG, "zoo get cached: ", znode, "=", cached)
 
   return r
 end
 
 function _M.get(znode)
-  local cached = get_from_cache("v:" .. znode)
+  local cached = get_from_cache("v", znode)
   if cached then
     return true, cached.value, nil, cached.stat
   end
@@ -91,14 +111,15 @@ function _M.get(znode)
     zoo.forgot(sc)
     err = _M.errors.ZOO_TIMEOUT
   elseif not err then
-    save_in_cache("v:" .. znode, value, stat)
+    save_in_cache("v", znode, value, stat)
+    ngx.log(ngx.DEBUG, "zoo get: ", znode, "=", value)
   end
 
   return completed and not err, value, err, stat
 end
 
 function _M.childrens(znode)
-  local cached = get_from_cache("c:" .. znode)
+  local cached = get_from_cache("c", znode)
   if cached then
     return true, cached.value or {}, nil
   end
@@ -126,7 +147,8 @@ function _M.childrens(znode)
   ok = completed and not err
 
   if ok then 
-    save_in_cache("c:" .. znode, childs, nil)
+    save_in_cache("c", znode, childs, nil)
+    ngx.log(ngx.DEBUG, "zoo get: ", znode, "=", cjson.encode(childs))
   end
 
   return ok, childs or {}, err
