@@ -418,10 +418,17 @@ ngx_zookeeper_register_callback(ngx_event_t *ev)
         ngx_log_error(NGX_LOG_ERR, ev->log, 0,
                       "Zookeeper: error register instance: %s", rc_str_s(rc));
     }
-
 settimer:
 
-    ngx_add_timer(ev, zookeeper_conf->recv_timeout * 2);
+    if (ngx_exiting)
+    {
+        // cleanup
+        ngx_memset(ev, 0, sizeof(ngx_event_t));
+    }
+    else
+    {
+        ngx_add_timer(ev, zookeeper_conf->recv_timeout * 2);
+    }
 }
 
 static void
@@ -439,7 +446,8 @@ static ngx_connection_t dumb_conn = {
 };
 static ngx_event_t register_ev = {
     .handler = ngx_zookeeper_register_callback,
-    .data = &dumb_conn
+    .data = &dumb_conn,
+    .log = NULL
 };
 
 static ngx_int_t
@@ -535,6 +543,12 @@ void
 ngx_zookeeper_lua_exit_worker(ngx_cycle_t *cycle)
 {
     int rc;
+
+    if (register_ev.log != NULL)
+    {
+        ngx_del_timer(&register_ev);
+        ngx_memset(&register_ev, 0, sizeof(ngx_event_t));
+    }
 
     if (!zoo.handle)
     {
