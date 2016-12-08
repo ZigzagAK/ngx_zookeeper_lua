@@ -7,9 +7,7 @@ download=0
 if [ "$1" == "1" ]; then
   download=1
 fi
-build_deps=1
-build_debug=1
-build_release=1
+build_deps=0
 
 DIR="$(pwd)"
 
@@ -34,22 +32,9 @@ export LD_LIBRARY_PATH="$JIT_PREFIX/lib:$ZOO_PREFIX/lib"
 
 function clean() {
   rm -rf install  2>/dev/null
+  rm -rf $(ls -1d build/* | grep -v deps)    2>/dev/null
   if [ $download -eq 1 ]; then
-    rm -rf build    2>/dev/null
     rm -rf download 2>/dev/null
-  else
-    if [ $build_debug -eq 1 ] && [ $build_release -eq 1 ]; then
-      if [ -e build ]; then
-        cd build
-        if [ $build_deps -eq 1 ]; then
-          rm -rf deps/* 2>/dev/null
-        fi
-        cd nginx-$VERSION                2>/dev/null && make clean > /dev/null 2>&1 ; cd $DIR/build
-        cd LuaJIT-$LUAJIT_VERSION        2>/dev/null && make clean > /dev/null 2>&1 ; cd $DIR/build
-        cd zookeeper-$ZOO_VERSION/src/c  2>/dev/null && make clean > /dev/null 2>&1 ; cd $DIR/build
-        cd ..
-      fi
-    fi
   fi
 }
 
@@ -83,20 +68,29 @@ function build_luajit() {
   cd ..
 }
 
+function build_cJSON() {
+  echo "Build cjson"
+  cd lua-cjson
+  PREFIX="$JIT_PREFIX/usr/local" make > /dev/null
+  r=$?
+  if [ $r -ne 0 ]; then
+    exit $r
+  fi
+  cd ..
+}
+
 function build_debug() {
   cd nginx-$VERSION
-  if [ $build_debug -eq 1 ] && [ $build_release -eq 1 ]; then
-    echo "Configuring debug nginx-$VERSION$SUFFIX"
-    ./configure --prefix="$INSTALL_PREFIX/nginx-$VERSION$SUFFIX" \
-                --with-pcre=$PCRE_PREFIX \
-                --with-stream \
-                --with-debug \
-                --with-cc-opt="-O0 -I$ZOO_PREFIX/include" \
-                --with-ld-opt="-L$ZOO_PREFIX/lib -lzookeeper_mt" \
-                --add-module=../ngx_devel_kit \
-                --add-module=../lua-nginx-module \
-                --add-module=../../../ngx_zookeeper_lua > /dev/null
-  fi
+  echo "Configuring debug nginx-$VERSION$SUFFIX"
+  ./configure --prefix="$INSTALL_PREFIX/nginx-$VERSION$SUFFIX" \
+              --with-pcre=$PCRE_PREFIX \
+              --with-stream \
+              --with-debug \
+              --with-cc-opt="-O0 -I$ZOO_PREFIX/include" \
+              --with-ld-opt="-L$ZOO_PREFIX/lib -lzookeeper_mt" \
+              --add-module=../ngx_devel_kit \
+              --add-module=../lua-nginx-module \
+              --add-module=../../../ngx_zookeeper_lua > /dev/null
 
   r=$?
   if [ $r -ne 0 ]; then
@@ -145,44 +139,58 @@ function build_release() {
 }
 
 function download_module() {
-  echo "Download $2 branch=$3"
-  rm -rf $2.tar.gz
-  curl -s -L -O https://github.com/$1/$2/archive/$3.zip
-  unzip -q $3.zip
-  mv $2-$3 $2
-  tar zcf $2.tar.gz $2
-  rm -rf $2 $3.zip
-}
-
-function build_cJSON() {
-  echo "Build cjson"
-  cd lua-cjson
-  PREFIX="$JIT_PREFIX/usr/local" make > /dev/null
-  r=$?
-  if [ $r -ne 0 ]; then
-    exit $r
+  if [ -e $DIR/../$2 ]; then
+    echo "Get $DIR/../$2"
+    dir=$(pwd)
+    cd $DIR/..
+    tar zcf $dir/$2.tar.gz $(ls -1d $2/* | grep -vE "(install$)|(build$)|(download$)|(.git$)")
+    cd $dir
+  else
+    if [ $download -eq 1 ] || [ ! -e $2.tar.gz ]; then
+      echo "Download $2 branch=$3"
+      curl -s -L -O https://github.com/$1/$2/archive/$3.zip
+      unzip -q $3.zip
+      mv $2-$3 $2
+      tar zcf $2.tar.gz $2
+      rm -rf $2 $3.zip
+    fi
   fi
-  cd ..
 }
 
 function download_nginx() {
-  echo "Download nginx-$VERSION"
-  curl -s -L -O http://nginx.org/download/nginx-$VERSION.tar.gz
+  if [ $download -eq 1 ] || [ ! -e nginx-$VERSION.tar.gz ]; then
+    echo "Download nginx-$VERSION"
+    curl -s -L -O http://nginx.org/download/nginx-$VERSION.tar.gz
+  else
+    echo "Get nginx-$VERSION.tar.gz"
+  fi
 }
 
 function download_luajit() {
-  echo "Download LuaJIT-$LUAJIT_VERSION"
-  curl -s -L -O http://luajit.org/download/LuaJIT-$LUAJIT_VERSION.tar.gz
+  if [ $download -eq 1 ] || [ ! -e LuaJIT-$LUAJIT_VERSION.tar.gz ]; then
+    echo "Download LuaJIT-$LUAJIT_VERSION"
+    curl -s -L -O http://luajit.org/download/LuaJIT-$LUAJIT_VERSION.tar.gz
+  else
+    echo "Get LuaJIT-$LUAJIT_VERSION.tar.gz"
+  fi
 }
 
 function download_zoo() {
-  echo "Download Zookeeper-$ZOO_VERSION"
-  curl -s -L -O http://www-eu.apache.org/dist/zookeeper/zookeeper-$ZOO_VERSION/zookeeper-$ZOO_VERSION.tar.gz
+  if [ $download -eq 1 ] || [ ! -e zookeeper-$ZOO_VERSION.tar.gz ]; then
+    echo "Download Zookeeper-$ZOO_VERSION"
+    curl -s -L -O http://www-eu.apache.org/dist/zookeeper/zookeeper-$ZOO_VERSION/zookeeper-$ZOO_VERSION.tar.gz
+  else
+    echo "Get zookeeper-$ZOO_VERSION.tar.gz"
+  fi
 }
 
 function download_pcre() {
-  echo "Download PCRE-$PCRE_VERSION"
-  curl -s -L -O http://ftp.cs.stanford.edu/pub/exim/pcre/pcre-$PCRE_VERSION.tar.gz
+  if [ $download -eq 1 ] || [ ! -e pcre-$PCRE_VERSION.tar.gz ]; then
+    echo "Download PCRE-$PCRE_VERSION"
+    curl -s -L -O http://ftp.cs.stanford.edu/pub/exim/pcre/pcre-$PCRE_VERSION.tar.gz
+  else
+    echo "Get pcre-$PCRE_VERSION.tar.gz"
+  fi
 }
 
 function extract_downloads() {
@@ -198,10 +206,6 @@ function extract_downloads() {
 }
 
 function download() {
-  if [ $download -eq 0 ]; then
-    return
-  fi
-
   mkdir build                2>/dev/null
   mkdir build/debug          2>/dev/null
   mkdir build/deps           2>/dev/null
@@ -242,25 +246,22 @@ function install_files() {
 function build() {
   cd build
 
-  if [ $download -eq 1 ]; then
-    patch -p0 < ../lua-cjson-Makefile.patch
-  fi
+  patch -p0 < ../lua-cjson-Makefile.patch
 
-  if [ $build_deps -eq 1 ]; then
+  if [ $build_deps -eq 1 ] || [ ! -e deps/luajit ]; then
     build_luajit
-    build_cJSON
+  fi
+  if [ $build_deps -eq 1 ] || [ ! -e deps/zookeeper ]; then
     build_zoo
   fi
 
-  if [ $build_debug -eq 1 ]; then
-    make clean > /dev/null 2>&1
-    build_debug
-  fi
+  build_cJSON
 
-  if [ $build_release -eq 1 ]; then
-    make clean > /dev/null 2>&1
-    build_release
-  fi
+  make clean > /dev/null 2>&1
+  build_debug
+
+  make clean > /dev/null 2>&1
+  build_release
 
   install_file  "$JIT_PREFIX/usr/local/lib"           .
   install_file  lua-cjson/cjson.so                    lib/lua/5.1
@@ -275,11 +276,21 @@ extract_downloads
 build
 
 function install_resty_module() {
-  if [ $6 -eq 1 ]; then
-    echo "Download $2 branch=$5"
-    rm -rf $2-$5 2>/dev/null
-    curl -s -L -O https://github.com/$1/$2/archive/$5.zip
-    mv $5.zip $2-$5.zip
+  if [ -e $DIR/../$2 ]; then
+    echo "Get $DIR/../$2"
+    dir=$(pwd)
+    cd $DIR/..
+    zip -qr $dir/$2.zip $(ls -1d $2/* | grep -vE "(install$)|(build$)|(download$)|(.git$)")
+    cd $dir
+  else
+    if [ $6 -eq 1 ] || [ ! -e $2-$5.zip ] ; then
+      echo "Download $2 branch=$5"
+      rm -rf $2-$5 2>/dev/null
+      curl -s -L -O https://github.com/$1/$2/archive/$5.zip
+      mv $5.zip $2-$5.zip
+    else
+      echo "Get $2-$5"
+    fi
   fi
   echo "Install $2/$3"
   if [ ! -e "$INSTALL_PREFIX/nginx-$VERSION$SUFFIX/$4" ]; then
