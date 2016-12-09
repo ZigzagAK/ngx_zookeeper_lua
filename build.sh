@@ -32,7 +32,7 @@ export LD_LIBRARY_PATH="$JIT_PREFIX/lib:$ZOO_PREFIX/lib"
 
 function clean() {
   rm -rf install  2>/dev/null
-  rm -rf $(ls -1d build/* | grep -v deps)    2>/dev/null
+  rm -rf $(ls -1d build/* 2>/dev/null | grep -v deps)    2>/dev/null
   if [ $download -eq 1 ]; then
     rm -rf download 2>/dev/null
   fi

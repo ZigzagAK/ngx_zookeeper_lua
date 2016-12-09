@@ -12,6 +12,7 @@ Table of Contents
 * [Status](#status)
 * [Synopsis](#synopsis)
 * [Description](#description)
+* [Install](#install)
 * [Simple UI](#simple-ui)
 * [Configuration directives](#configuration-directives)
 * [Base methods](#methods)
@@ -36,6 +37,30 @@ Description
 ===========
 
 This module provides Lua bindings to interract with Zookeeper.
+
+[Back to TOC](#table-of-contents)
+
+Install
+=======
+
+Build nginx with Zookeeper support.
+All dependencies are downloaded automaticaly.
+
+Pre requirenments (for example centos/redhat)
+
+```
+sudo yum gcc-c++.x86_64 zlib-devel openssl-devel
+```
+
+Build
+
+```
+git clone git@github.com:ZigzagAK/ngx_zookeeper_lua.git
+cd ngx_zookeeper_lua
+./build.sh
+```
+
+Archive will be placed in the `install` folder after successful build.
 
 [Back to TOC](#table-of-contents)
 
