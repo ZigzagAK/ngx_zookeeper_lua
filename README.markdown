@@ -12,6 +12,7 @@ Table of Contents
 * [Status](#status)
 * [Synopsis](#synopsis)
 * [Description](#description)
+* [Simple UI](#simple-ui)
 * [Configuration directives](#configuration-directives)
 * [Base methods](#methods)
   * [connected](#connected)
@@ -207,6 +208,14 @@ http {
   }
 }
 ```
+
+[Back to TOC](#table-of-contents)
+
+Simple UI
+========================
+UI displays Zookeeper content.
+
+[![Build Status](zoo_ui.png)]
 
 [Back to TOC](#table-of-contents)
 
