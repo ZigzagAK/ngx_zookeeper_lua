@@ -64,7 +64,12 @@ http {
   server {
     listen 4444;
 
+    include mime.types;
     default_type application/json;
+
+    root html/zoo;
+
+    index index.html;
 
     server_name zoo;
 
@@ -214,6 +219,7 @@ http {
 Simple UI
 ========================
 UI displays Zookeeper content.
+Available on `http://127.0.0.1:4444`
 
 ![Build Status](zoo_ui.png)
 
