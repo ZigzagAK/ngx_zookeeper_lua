@@ -215,7 +215,7 @@ Simple UI
 ========================
 UI displays Zookeeper content.
 
-[![Build Status](zoo_ui.png)]
+![Build Status](zoo_ui.png)
 
 [Back to TOC](#table-of-contents)
 
