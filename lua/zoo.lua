@@ -24,6 +24,8 @@ local zoo_cache_on = CONFIG:get("zoo.cache.on") or true
 local zoo_cache_ttl = CONFIG:get("zoo.cache.ttl") or 60
 local zoo_cache_path_ttl = cjson.decode(CONFIG:get("zoo.cache.path.ttl") or {})
 
+table.sort(zoo_cache_path_ttl, function(l, r) return #l.path > #r.path end)
+
 local function get_ttl(znode)
   for _, z in ipairs(zoo_cache_path_ttl)
   do
