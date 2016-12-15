@@ -246,7 +246,7 @@ Simple UI
 UI displays Zookeeper content.
 Available on `http://127.0.0.1:4444`
 
-![Build Status](zoo_ui.png)
+![UI](zoo_ui.png)
 
 [Back to TOC](#table-of-contents)
 
