@@ -476,7 +476,7 @@ initialize(volatile ngx_cycle_t *cycle)
         return NGX_ERROR;
     }
 
-    if (ngx_worker == 0 && zookeeper_conf->instances_path.data)
+    if (ngx_worker == 0 && register_ev.log == NULL && zookeeper_conf->instances_path.data != NULL)
     {
         register_ev.log = cycle->log;
         ngx_add_timer(&register_ev, zookeeper_conf->recv_timeout * 2);
