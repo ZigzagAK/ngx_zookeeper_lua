@@ -233,13 +233,15 @@ typedef struct
     int connected;
     const clientid_t *client_id;
     int registered;
+    int expired;
 } zookeeper_t;
 
 static zookeeper_t zoo = {
     .handle = NULL,
     .connected = 0,
     .registered = 0,
-    .client_id = NULL
+    .client_id = NULL,
+    .expired = 1
 };
 
 ngx_int_t
@@ -394,6 +396,9 @@ ngx_zookeeper_register_ready(int rc, const char *value, const void *data)
 }
 
 static void
+initialize(volatile ngx_cycle_t *cycle);
+
+static void
 ngx_zookeeper_delete_ready(int rc, const void *data);
 
 static void
@@ -401,11 +406,31 @@ ngx_zookeeper_register_callback(ngx_event_t *ev)
 {
     ngx_http_zookeeper_lua_module_main_conf_t *zookeeper_conf = ngx_http_cycle_get_module_main_conf(ngx_cycle, ngx_zookeeper_lua_module);
 
-    if (zoo.registered != 0 || zoo.connected == 0)
+    if (zoo.expired == 1)
+    {
+        if (zoo.handle)
+        {
+            zookeeper_close(zoo.handle);
+            zoo.handle = NULL;
+            zoo.client_id = 0;
+        }
+        initialize(ngx_cycle);
+    }
+
+    if (zookeeper_conf->instances_path.data == NULL)
     {
         goto settimer;
     }
 
+    if (zoo.connected == 0)
+    {
+        goto settimer;
+    }
+
+    if (zoo.registered == 1)
+    {
+        goto settimer;
+    }
 
     zoo_adelete(zoo.handle, (const char *)zookeeper_conf->instance.data, -1, ngx_zookeeper_delete_ready, NULL);
 
@@ -450,15 +475,10 @@ static ngx_event_t register_ev = {
     .log = NULL
 };
 
-static ngx_int_t
+static void
 initialize(volatile ngx_cycle_t *cycle)
 {
     ngx_http_zookeeper_lua_module_main_conf_t *zookeeper_conf = ngx_http_cycle_get_module_main_conf(cycle, ngx_zookeeper_lua_module);
-
-    if (!zookeeper_conf || zookeeper_conf->hosts.len == 0)
-    {
-        return NGX_OK;
-    }
 
     zoo.handle = zookeeper_init2(CAST(zookeeper_conf->hosts.data, const char*),
                                  session_watcher,
@@ -473,19 +493,13 @@ initialize(volatile ngx_cycle_t *cycle)
         u_char err[1024];
         ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
                       "Zookeeper: error create zookeeper handle: %s", ngx_strerror(errno, err, sizeof(err)));
-        return NGX_ERROR;
+        return;
     }
 
-    if (ngx_worker == 0 && register_ev.log == NULL && zookeeper_conf->instances_path.data != NULL)
-    {
-        register_ev.log = cycle->log;
-        ngx_add_timer(&register_ev, zookeeper_conf->recv_timeout * 2);
-    }
+    zoo.expired = 0;
 
     ngx_log_error(NGX_LOG_INFO, cycle->log, 0,
-                  "Zookeeper connector has been initialized in %s mode", zookeeper_conf->init_flags == ZOO_READONLY ? "read only" : "read/write");
-
-    return NGX_OK;
+                  "Zookeeper: connecting ...");
 }
 
 static void
@@ -519,12 +533,9 @@ session_watcher(zhandle_t *zh,
             {
                 ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0,
                               "Zookeeper: session has been expired");
-                zookeeper_close(zh);
-                bzero(&zoo, sizeof(zoo));
-            }
-            if (!ngx_exiting)
-            {
-                initialize(ngx_cycle);
+                zoo.connected = 0;
+                zoo.registered = 0;
+                zoo.expired = 1;
             }
         }
     }
@@ -536,7 +547,25 @@ session_watcher(zhandle_t *zh,
 ngx_int_t
 ngx_zookeeper_lua_init_worker(ngx_cycle_t *cycle)
 {
-    return initialize(cycle);
+    ngx_http_zookeeper_lua_module_main_conf_t *zookeeper_conf = ngx_http_cycle_get_module_main_conf(cycle, ngx_zookeeper_lua_module);
+
+    if (zookeeper_conf == NULL || zookeeper_conf->hosts.len == 0)
+    {
+        return NGX_OK;
+    }
+
+    ngx_log_error(NGX_LOG_INFO, cycle->log, 0,
+                  "Zookeeper connector has been initialized in %s mode", zookeeper_conf->init_flags == ZOO_READONLY ? "read only" : "read/write");
+
+    initialize(cycle);
+
+    if (ngx_worker == 0)
+    {
+        register_ev.log = cycle->log;
+        ngx_add_timer(&register_ev, 2000);
+    }
+
+    return NGX_OK;
 }
 
 void
