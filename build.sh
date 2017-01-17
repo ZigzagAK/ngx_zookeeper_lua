@@ -21,7 +21,8 @@ SUFFIX="-zoo"
 BASE_PREFIX="$DIR/build"
 INSTALL_PREFIX="$DIR/install"
 
-ZOO_PREFIX="$DIR/build/deps/zookeeper"
+export ZOO_PREFIX="$DIR/build/deps/zookeeper"
+
 PCRE_PREFIX="$DIR/build/pcre-$PCRE_VERSION"
 JIT_PREFIX="$DIR/build/deps/luajit"
 
@@ -46,7 +47,7 @@ fi
 function build_zoo() {
   echo "Build Zookeeper"
   cd zookeeper-$ZOO_VERSION/src/c
-  ./configure --prefix="$ZOO_PREFIX" > /dev/null
+  ./configure --prefix="$ZOO_PREFIX" --libdir="$ZOO_PREFIX/lib"> /dev/null
   make -j 8 > /dev/null
   r=$?
   if [ $r -ne 0 ]; then
@@ -86,8 +87,7 @@ function build_debug() {
               --with-pcre=$PCRE_PREFIX \
               --with-stream \
               --with-debug \
-              --with-cc-opt="-O0 -I$ZOO_PREFIX/include" \
-              --with-ld-opt="-L$ZOO_PREFIX/lib -lzookeeper_mt" \
+              --with-cc-opt="-O0" \
               --add-module=../ngx_devel_kit \
               --add-module=../lua-nginx-module \
               --add-module=../../../ngx_zookeeper_lua > /dev/null
@@ -116,8 +116,6 @@ function build_release() {
   ./configure --prefix="$INSTALL_PREFIX/nginx-$VERSION$SUFFIX" \
               --with-pcre=$PCRE_PREFIX \
               --with-stream \
-              --with-cc-opt="-I$ZOO_PREFIX/include" \
-              --with-ld-opt="-L$ZOO_PREFIX/lib -lzookeeper_mt" \
               --add-module=../ngx_devel_kit \
               --add-module=../lua-nginx-module \
               --add-module=../../../ngx_zookeeper_lua > /dev/null
