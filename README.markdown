@@ -3,8 +3,6 @@ Name
 
 ngx_zookeeper_lua - Lua bindings to interract with Zookeeper.
 
-[![Build Status](https://drone.io/github.com/ZigzagAK/ngx_zookeeper_lua/status.png)](https://drone.io/github.com/ZigzagAK/ngx_zookeeper_lua/latest)
-
 Table of Contents
 =================
 
@@ -26,7 +24,6 @@ Table of Contents
 * [Additional API](#additional-api)
   * [tree](#tree)
   * [import](#import)
-* [Latest build](#latest-build)
 
 Status
 ======
@@ -391,6 +388,3 @@ import
 Import znodes from json (format - api.tree). Overwrite existing values.
 
 Returns true on success, or false and a string describing an error otherwise.
-
-# Latest build
-  * https://drone.io/github.com/ZigzagAK/ngx_zookeeper_lua/files
