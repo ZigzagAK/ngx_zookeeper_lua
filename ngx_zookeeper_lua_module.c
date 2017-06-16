@@ -1,4 +1,5 @@
 #include <ngx_core.h>
+
 #include <ngx_http.h>
 #include <lauxlib.h>
 #include <assert.h>
@@ -702,7 +703,7 @@ ngx_zookeeper_lua_error(lua_State * L, const char *where, const char *error)
 {
     char tmp[1024];
     snprintf(tmp, sizeof(tmp) - 1, "%s: %s", where, error);
-    lua_pushboolean(L, 0);
+    lua_pushnil(L);
     lua_pushlstring(L, tmp, strlen(tmp));
     return 2;
 }
@@ -930,15 +931,8 @@ ngx_zookeeper_forgot(lua_State * L)
 static int
 ngx_zookeeper_timeout(lua_State * L)
 {
-    if (!zoo.handle)
-    {
-        lua_pushnil(L);
-    }
-    else
-    {
-        lua_pushinteger(L, CAST(zoo_recv_timeout(zoo.handle), lua_Integer));
-    }
-
+    ngx_http_zookeeper_lua_module_main_conf_t *zookeeper_conf = ngx_http_cycle_get_module_main_conf(ngx_cycle, ngx_zookeeper_lua_module);
+    lua_pushinteger(L, CAST(zookeeper_conf->recv_timeout, lua_Integer));
     return 1;
 }
 
@@ -948,7 +942,7 @@ static void
 ngx_zookeeper_string_completition(lua_State * L, void *data)
 {
     string_result_t *g_r = (string_result_t *) data;
-    if (g_r && g_r->len)
+    if (g_r && g_r->len && g_r->data[0] != 0)
     {
         lua_pushlstring(L, (const char *) g_r->data, g_r->len);
     }
@@ -1113,8 +1107,8 @@ ngx_zookeeper_aget(lua_State * L)
         return ngx_zookeeper_lua_error(L, "aget", rc_str_s(rc));
     }
 
-    lua_pushboolean(L, 1);
     lua_pushinteger(L, CAST(r, lua_Integer));
+    lua_pushnil(L);
 
     return 2;
 }
@@ -1267,8 +1261,8 @@ ngx_zookeeper_aget_childrens(lua_State * L)
         return ngx_zookeeper_lua_error(L, "aget_childrens", rc_str_s(rc));
     }
 
-    lua_pushboolean(L, 1);
     lua_pushinteger(L, CAST(r, lua_Integer));
+    lua_pushnil(L);
 
     return 2;
 }
@@ -1342,8 +1336,8 @@ ngx_zookeeper_aset(lua_State * L)
         return ngx_zookeeper_lua_error(L, "aset", rc_str_s(rc));
     }
 
-    lua_pushboolean(L, 1);
     lua_pushinteger(L, CAST(r, lua_Integer));
+    lua_pushnil(L);
 
     return 2;
 }
@@ -1407,8 +1401,8 @@ ngx_zookeeper_acreate(lua_State * L)
         return ngx_zookeeper_lua_error(L, "acreate", rc_str_s(rc));
     }
 
-    lua_pushboolean(L, 1);
     lua_pushinteger(L, CAST(r, lua_Integer));
+    lua_pushnil(L);
 
     return 2;
 }
@@ -1466,8 +1460,8 @@ ngx_zookeeper_adelete(lua_State * L)
         return ngx_zookeeper_lua_error(L, "adelete", rc_str_s(rc));
     }
 
-    lua_pushboolean(L, 1);
     lua_pushinteger(L, CAST(r, lua_Integer));
+    lua_pushnil(L);
 
     return 2;
 }

@@ -46,7 +46,7 @@ All dependencies are downloaded automaticaly.
 Pre requirenments (for example centos/redhat)
 
 ```
-sudo yum gcc-c++.x86_64 zlib-devel openssl-devel
+sudo yum install gcc-c++.x86_64 zlib-devel openssl-devel
 ```
 
 Build
@@ -107,7 +107,7 @@ http {
   }
 
   server {
-    listen 4444;
+    listen 12181;
 
     include mime.types;
     default_type application/json;
@@ -122,20 +122,8 @@ http {
       content_by_lua_block {
         local zoo = require "zoo"
         local cjson = require "cjson"
-
-        local ok, value, err, stat = zoo.get(ngx.var.arg_znode)
-        local r
-
-        if ok then
-          if not value then
-            value = ""
-          end
-          r = { value = value, stat = stat }
-        else
-          r = { error = err }
-        end
-
-        ngx.say(cjson.encode(r))
+        local value, stat, err = zoo.get(ngx.var.arg_znode)
+        ngx.say(cjson.encode(value and { value = value, stat = stat } or { error = err }))
       }
     }
 
@@ -143,17 +131,8 @@ http {
       content_by_lua_block {
         local zoo = require "zoo"
         local cjson = require "cjson"
-
-        local ok, childs, err = zoo.childrens(ngx.var.arg_znode)
-        local r
-
-        if ok then
-          r = childs
-        else
-          r = { error = err }
-        end
-
-        ngx.say(cjson.encode(r))
+        local childs, err = zoo.childrens(ngx.var.arg_znode)
+        ngx.say(cjson.encode(childs and childs or { error = err }))
       }
     }
 
@@ -161,17 +140,8 @@ http {
       content_by_lua_block {
         local zoo = require "zoo"
         local cjson = require "cjson"
-
-        local ok, err, stat = zoo.set(ngx.var.arg_znode, ngx.var.arg_value, ngx.var.arg_version)
-        local r
-
-        if ok then
-          r = { value = ngx.var.arg_value, stat = stat }
-        else
-          r = { error = err }
-        end
-
-        ngx.say(cjson.encode(r))
+        local stat, err = zoo.set(ngx.var.arg_znode, ngx.var.arg_value, ngx.var.arg_version)
+        ngx.say(cjson.encode(stat and { value = ngx.var.arg_value, stat = stat } or { error = err }))
       }
     }
 
@@ -179,16 +149,8 @@ http {
       content_by_lua_block {
         local zoo = require "zoo"
         local cjson = require "cjson"
-
-        local ok, r, err = zoo.create(ngx.var.arg_znode, ngx.var.arg_value)
-
-        if ok then
-          r = { znode = r }
-        else
-          r = { error = err }
-        end
-
-        ngx.say(cjson.encode(r))
+        local result, err = zoo.create(ngx.var.arg_znode, ngx.var.arg_value)
+        ngx.say(cjson.encode(result and { znode = result } or { error = err }))
       }
     }
 
@@ -196,63 +158,44 @@ http {
       content_by_lua_block {
         local zoo = require "zoo"
         local cjson = require "cjson"
-
         local ok, err = zoo.delete(ngx.var.arg_znode)
-        if ok then
-          r = { znode = "deleted" }
-        else
-          r = { error = err }
-        end
-
-        ngx.say(cjson.encode(r))
+        ngx.say(cjson.encode(ok and { znode = "deleted" } or { error = err }))
       }
     }
 
     location = /tree {
       content_by_lua_block {
-        local zoo = require 'zoo'
+        local api = require "zoo.api"
+        local cjson = require "cjson"
+        ngx.say(cjson.encode(api.tree(ngx.var.arg_znode,
+                                      ngx.var.arg_stat and ngx.var.arg_stat:match("[1yY]"))))
+      }
+    }
 
-        local subtree
-        subtree = function(znode)
-          local ok, value, err, stat = zoo.get(znode)
-          if not ok then
-            error(err)
-          end
+    location = /import {
+      content_by_lua_block {
+        local api = require "zoo.api"
 
-          if not value then
-            value = ""
-          end
-
-          local tree = { value = value }
-
-          if stat and ngx.var.arg_stat and ngx.var.arg_stat:match("[1yY]") then
-            tree.stat = stat
-          end
-
-          if stat and stat.numChildren == 0 then
-            return tree
-          end
-
-          local ok, childs, err = zoo.childrens(znode)
-          if not ok then
-            error(err)
-          end
-
-          if not znode:match("/$") then
-            znode = znode .. "/"
-          end
-
-          for _, child in pairs(childs)
-          do
-            tree[child] = subtree(znode .. child)
-          end
-
-          return tree
+        local method = ngx.req.get_method()
+        if method ~= "POST" and method ~= "PUT" then
+          ngx.exit(ngx.HTTP_BAD_REQUEST)
         end
 
-        local cjson = require "cjson"
+        local content_type = ngx.req.get_headers().content_type
 
-        ngx.say(cjson.encode(subtree(ngx.var.arg_znode)))
+        if not content_type or content_type:lower() ~= "application/json" then
+          ngx.exit(ngx.HTTP_BAD_REQUEST)
+        end
+
+        ngx.req.read_body()
+        local data = ngx.req.get_body_data()
+
+        local ok, err = api.import(ngx.var.arg_znode or "/", data)
+        if ok then
+          ngx.say("Imported")
+        else
+          ngx.say(err)
+        end
       }
     }
   }
@@ -324,46 +267,46 @@ Returns true or false.
 
 get
 ---
-**syntax:** `ok, value, err, stat = zoo.get(znode)`
+**syntax:** `value, stat, err = zoo.get(znode)`
 
 **context:** *&#42;_by_lua&#42;*
 
 Get value of the `znode` and znode information.
 `stat`: { czxid, mzxid, ctime, mtime, version, cversion, aversion, ephemeralOwner, dataLength, numChildren, pzxid }
 
-Returns true and value on success, or false and a string describing an error otherwise.
+Returns value on success, or nil and a string describing an error otherwise.
 
 childrens
 ---------
-**syntax:** `ok, childs, err = zoo.childrens(znode)`
+**syntax:** `childs, err = zoo.childrens(znode)`
 
 **context:** *&#42;_by_lua&#42;*
 
 Get child znode's names of the `znode`.
 
-Returns true and table of names on success, or false and a string describing an error otherwise.
+Returns table with znode's names on success, or nil and a string describing an error otherwise.
 
 set
 ---
-**syntax:** `ok, err, stat = zoo.set(znode, value, version)`
+**syntax:** `result, err = zoo.set(znode, value, version)`
 
 **context:** *&#42;_by_lua&#42;*
 
 Set value of the `znode`. Version may be nil (no version check).
 `stat`: { czxid, mzxid, ctime, mtime, version, cversion, aversion, ephemeralOwner, dataLength, numChildren, pzxid }
 
-Returns true and znode information on success, or false and a string describing an error otherwise.
+Returns znode information on success, or nil and a string describing an error otherwise.
 
 create
 ------
-**syntax:** `ok, r, err = zoo.create(znode, value, mode)`
+**syntax:** `result, err = zoo.create(znode, value, mode)`
 
 **context:** *&#42;_by_lua&#42;*
 
 Create the `znode` with initial `value`.
 `mode`: flags.ZOO_EPHEMERAL, flags.ZOO_SEQUENCE
 
-Returns true and new `znode` path on success, or false and a string describing an error otherwise.
+Returns new `znode` path on success, or nil and a string describing an error otherwise.
 
 delete
 ------

@@ -5,17 +5,23 @@ local cjson = require "cjson"
 local timeout = zoo.timeout()
 
 local _M = {
-  _VERSION = '1.0.0',
+  _VERSION = '2.0.0',
 
   errors = {
-      ZOO_TIMEOUT = "TIMEOUT"
+    ZOO_TIMEOUT = "TIMEOUT"
   },
 
   flags = {
-      ZOO_EPHEMERAL = bit.lshift(1, 0),
-      ZOO_SEQUENCE = bit.lshift(1, 1)
+    ZOO_EPHEMERAL = bit.lshift(1, 0),
+    ZOO_SEQUENCE = bit.lshift(1, 1)
   }
 }
+
+local errors
+local create
+local delete
+local delete_recursive
+local childrens
 
 local CACHE = ngx.shared.zoo_cache
 local CONFIG = ngx.shared.config
@@ -36,7 +42,7 @@ local function get_ttl(znode)
   return zoo_cache_ttl
 end
 
-local function timeto()
+local function get_expires()
   ngx.update_time()
   return ngx.now() * 1000 + timeout
 end
@@ -66,7 +72,7 @@ local function save_in_cache(prefix, znode, v, stat)
     
   local cached = cjson.encode({ stat = stat, value = v })
     
-  local ok, err, _ = CACHE:set(prefix .. ":" .. znode, cached, zoo_cache_ttl)
+  local ok, err = CACHE:set(prefix .. ":" .. znode, cached, zoo_cache_ttl)
 
   if ok then
     ngx.log(ngx.DEBUG, "zoo set cached: ttl=" .. ttl .. "s," .. znode, "=", cached)
@@ -81,34 +87,30 @@ local function get_from_cache(prefix, znode)
   end
 
   local cached = CACHE:get(prefix .. ":" .. znode)
-  
   if not cached then
     return nil
   end
 
-  local r = cjson.decode(cached)
-
   ngx.log(ngx.DEBUG, "zoo get cached: ", znode, "=", cached)
 
-  return r
+  return cjson.decode(cached)
 end
 
 function _M.get(znode)
   local cached = get_from_cache("v", znode)
   if cached then
-    return true, cached.value, nil, cached.stat
+    return cached.value, cached.stat
   end
 
-  local ok, sc = zoo.aget(znode)
-
-  if not ok then
-    return ok, nil, sc, nil
+  local sc, err = zoo.aget(znode)
+  if not sc then
+    return nil, nil, err
   end
 
-  local time_limit = timeto()
+  local expires = get_expires()
   local completed, value, err, stat
 
-  while not completed and ngx.now() * 1000 < time_limit
+  while not completed and ngx.now() * 1000 < expires
   do
     sleep(0.001)
     completed, value, err, stat = zoo.check_completition(sc)
@@ -116,31 +118,34 @@ function _M.get(znode)
 
   if not completed then
     zoo.forgot(sc)
-    err = _M.errors.ZOO_TIMEOUT
-  elseif not err then
-    save_in_cache("v", znode, value, stat)
-    ngx.log(ngx.DEBUG, "zoo get: ", znode, "=", value)
+    return nil, nil, errors.ZOO_TIMEOUT
   end
 
-  return completed and not err, value, err, stat
+  if err then
+    return nil, nil, err
+  end
+
+  save_in_cache("v", znode, value or "", stat)
+  ngx.log(ngx.DEBUG, "zoo get: ", znode, "=", value)
+
+  return value or "", stat
 end
 
 function _M.childrens(znode)
   local cached = get_from_cache("c", znode)
   if cached then
-    return true, cached.value or {}, nil
+    return cached.value or {}
   end
 
-  local ok, sc = zoo.achildrens(znode)
-
-  if not ok then
-    return ok, nil, sc
+  local sc, err = zoo.achildrens(znode)
+  if not sc then
+    return nil, err
   end
 
-  local time_limit = timeto()
+  local expires = get_expires()
   local completed, childs, err
 
-  while not completed and ngx.now() * 1000 < time_limit
+  while not completed and ngx.now() * 1000 < expires
   do
     sleep(0.001)
     completed, childs, err = zoo.check_completition(sc)
@@ -148,66 +153,52 @@ function _M.childrens(znode)
 
   if not completed then
     zoo.forgot(sc)
-    err = _M.errors.ZOO_TIMEOUT
+    return nil, errors.ZOO_TIMEOUT
   end
 
-  ok = completed and not err
-
-  if ok then 
-    save_in_cache("c", znode, childs, nil)
-    ngx.log(ngx.DEBUG, "zoo get: ", znode, "=", cjson.encode(childs))
+  if err then
+    return nil, err
   end
 
-  return ok, childs or {}, err
+  save_in_cache("c", znode, childs, nil)
+  ngx.log(ngx.DEBUG, "zoo get: ", znode, "=", cjson.encode(childs))
+
+  return childs or {}
 end
 
 function _M.set(znode, value, version)
-  if not version then
-    version = -1
+  local sc, err = zoo.aset(znode, value, version or -1)
+  if not sc then
+    return nil, err
   end
 
-  local ok, sc = zoo.aset(znode, value, version)
+  local expires = get_expires()
+  local completed, void, err, stat
 
-  if not ok then
-    return ok, nil, sc, nil
-  end
-
-  local time_limit = timeto()
-  local completed, err, stat
-
-  while not completed and ngx.now() * 1000 < time_limit
+  while not completed and ngx.now() * 1000 < expires
   do
     sleep(0.001)
-    completed, _, err, stat = zoo.check_completition(sc)
+    completed, void, err, stat = zoo.check_completition(sc)
   end
 
   if not completed then
     zoo.forgot(sc)
-    err = _M.errors.ZOO_TIMEOUT
+    return nil, errors.ZOO_TIMEOUT
   end
 
-  return completed and not err, err, stat
+  return stat, err
 end
 
 function _M.create(znode, value, flags)
-  if not value then
-    value = ""
+  local sc, err = zoo.acreate(znode, value or "", flags or 0)
+  if not sc then
+    return nil, err
   end
 
-  if not flags then
-    flags = 0
-  end
-
-  local ok, sc = zoo.acreate(znode, value, flags)
-
-  if not ok then
-    return ok, nil, sc
-  end
-
-  local time_limit = timeto()
+  local expires = get_expires()
   local completed, result, err
 
-  while not completed and ngx.now() * 1000 < time_limit
+  while not completed and ngx.now() * 1000 < expires
   do
     sleep(0.001)
     completed, result, err = zoo.check_completition(sc)
@@ -215,10 +206,14 @@ function _M.create(znode, value, flags)
 
   if not completed then
     zoo.forgot(sc)
-    err = _M.errors.ZOO_TIMEOUT
+    return nil, errors.ZOO_TIMEOUT
   end
 
-  return completed and not err, result, err
+  if err then
+    return nil, err
+  end
+
+  return result or "", err
 end
 
 function _M.create_path(znode)
@@ -226,9 +221,9 @@ function _M.create_path(znode)
   
   for p in znode:gmatch("/([^/]+)")
   do
-    local ok, _, err = _M.create(path .. p)
+    local ok, err = create(path .. p)
     if not ok and err ~= "Znode already exists" then
-      return ok, err
+      return nil, err
     end
     path = path .. p .. "/"
   end
@@ -237,48 +232,55 @@ function _M.create_path(znode)
 end
 
 function _M.delete(znode)
-  local ok, sc = zoo.adelete(znode)
-
-  if not ok then
-    return ok, sc
+  local sc, err = zoo.adelete(znode)
+  if not sc then
+    return nil, err
   end
 
-  local time_limit = timeto()
-  local completed, err
+  local expires = get_expires()
+  local completed, void, err
 
-  while not completed and ngx.now() * 1000 < time_limit
+  while not completed and ngx.now() * 1000 < expires
   do
     sleep(0.001)
-    completed, _, err = zoo.check_completition(sc)
+    completed, void, err = zoo.check_completition(sc)
   end
 
   if not completed then
     zoo.forgot(sc)
-    err = _M.errors.ZOO_TIMEOUT
+    return nil, errors.ZOO_TIMEOUT
   end
 
-  return completed and not err, err
+  return not err, err
 end
 
 function _M.delete_recursive(znode)
-  local ok, nodes, err = _M.childrens(znode)
-  if not ok then
-    return ok, err
+  local nodes, err = childrens(znode)
+  if not nodes then
+    return nil, err
   end
   
-  for _, node in ipairs(nodes)
+  for i=1,#nodes
   do
-    ok, err = _M.delete_recursive(znode .. "/" .. node)
+    ok, err = delete_recursive(znode .. "/" .. nodes[i])
     if not ok then
       break
     end
   end
 
-  return _M.delete(znode)
+  return delete(znode)
 end
 
 function _M.connected()
   return zoo.connected()
+end
+
+do
+  errors = _M.errors
+  create = _M.create
+  delete = _M.delete
+  delete_recursive = _M.delete_recursive
+  childrens = _M.childrens
 end
 
 return _M

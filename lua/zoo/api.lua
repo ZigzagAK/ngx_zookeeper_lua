@@ -1,93 +1,48 @@
 local _M = {
-  _VERSION = "1.0.0"
+  _VERSION = "2.0.0"
 }
 
 local zoo = require "zoo"
 
 function _M.get(znode)
-  local ok, value, err, stat = zoo.get(znode)
-  local r
-
-  if ok then
-    if not value then
-      value = ""
-    end
-    r = { value = value, stat = stat }
-  else
-    r = { error = err }
-  end
-
-  return r
+  local value, stat, err = zoo.get(znode)
+  return value and { value = value, stat = stat } or { error = err }
 end
 
 function _M.childrens(znode)
-  local ok, childs, err = zoo.childrens(znode)
-  local r
-
-  if ok then
-    r = childs
-  else
-    r = { error = err }
-  end
-
-  return r
+  local childs, err = zoo.childrens(znode)
+  return childs and childs or { error = err }
 end
 
 function _M.set(znode, value, version)
-  local ok, err, stat = zoo.set(znode, value, version)
-  local r
-
-  if ok then
-    r = { value = ngx.var.arg_value, stat = stat }
-  else
-    r = { error = err }
-  end
-
-  return r
+  local stat, err = zoo.set(znode, value, version)
+  return stat and { value = ngx.var.arg_value, stat = stat } or { error = err }
 end
 
 function _M.create(znode, value)
-  local ok, r, err = zoo.create(znode, value)
-
-  if ok then
-    r = { znode = r }
-  else
-    r = { error = err }
-  end
-
-  return r
+  local result, err = zoo.create(znode, value)
+  return result and { znode = result } or { error = err }
 end
 
 function _M.delete(znode, recursive)
   local ok, err
-  local r
 
   if recursive and recursive:match("[Yy1]") then
     ok, err = zoo.delete_recursive(znode)
   else
     ok, err = zoo.delete(znode)
   end
-  
-  if ok then
-    r = { znode = "deleted" }
-  else
-    r = { error = err }
-  end
 
-  return r
+  return ok and { znode = "deleted" } or { error = err }
 end
 
 function _M.tree(znode, need_stat)
   local subtree
 
   subtree = function(znode)
-    local ok, value, err, stat = zoo.get(znode)
-    if not ok then
-      error(err)
-    end
-
+    local value, stat, err = zoo.get(znode)
     if not value then
-      value = ""
+      error(err)
     end
 
     local tree = {}
@@ -105,8 +60,8 @@ function _M.tree(znode, need_stat)
       tree.value = value
     end
 
-    local ok, childs, err = zoo.childrens(znode)
-    if not ok then
+    local childs, err = zoo.childrens(znode)
+    if not childs then
       error(err)
     end
 
@@ -153,7 +108,7 @@ function _M.import(root, json)
 
   local set = function(path, value)
     ngx.log(ngx.DEBUG, "zoo import: set znode=" .. path .. ", value=" .. value)
-    local ok, err, _ = zoo.set(path, value)
+    local ok, err = zoo.set(path, value)
     if not ok then
       error(err)
     end

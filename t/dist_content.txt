@@ -12,11 +12,11 @@ nginx-1.11.6-zoo/conf/nginx.conf
 nginx-1.11.6-zoo/conf/nginx.conf.default
 nginx-1.11.6-zoo/conf/scgi_params
 nginx-1.11.6-zoo/conf/scgi_params.default
-nginx-1.11.6-zoo/conf/server.conf
 nginx-1.11.6-zoo/conf/uwsgi_params
 nginx-1.11.6-zoo/conf/uwsgi_params.default
 nginx-1.11.6-zoo/conf/win-utf
 nginx-1.11.6-zoo/conf/zoo.conf
+nginx-1.11.6-zoo/conf/zoo_server.conf
 nginx-1.11.6-zoo/debug.sh
 nginx-1.11.6-zoo/html/
 nginx-1.11.6-zoo/html/50x.html
@@ -48,8 +48,12 @@ nginx-1.11.6-zoo/lib/lua/5.1/cjson.so
 nginx-1.11.6-zoo/lib/ngx/
 nginx-1.11.6-zoo/lib/ngx/balancer.lua
 nginx-1.11.6-zoo/lib/ngx/balancer.md
+nginx-1.11.6-zoo/lib/ngx/errlog.lua
+nginx-1.11.6-zoo/lib/ngx/errlog.md
 nginx-1.11.6-zoo/lib/ngx/ocsp.lua
 nginx-1.11.6-zoo/lib/ngx/ocsp.md
+nginx-1.11.6-zoo/lib/ngx/process.lua
+nginx-1.11.6-zoo/lib/ngx/process.md
 nginx-1.11.6-zoo/lib/ngx/re.lua
 nginx-1.11.6-zoo/lib/ngx/re.md
 nginx-1.11.6-zoo/lib/ngx/semaphore.lua

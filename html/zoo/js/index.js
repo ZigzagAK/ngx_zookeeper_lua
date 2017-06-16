@@ -27,7 +27,7 @@ var transforms = {
 
 $(function(){
 	
-  $.get( "/tree?znode=/" ).done(function(data) {  visualize(data); })
+  $.get( "/zoo/tree?znode=/" ).done(function(data) {  visualize(data); })
 
 });
 
