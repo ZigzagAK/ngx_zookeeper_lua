@@ -35,16 +35,14 @@ ngx_http_zookeeper_lua_recv_timeout(ngx_conf_t *cf, ngx_command_t *cmd, void *co
 static char *
 ngx_http_zookeeper_lua_read_only(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 static char *
-ngx_http_zookeeper_lua_instances(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
+ngx_http_zookeeper_lua_ethemeral_node(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 
 typedef struct
 {
     ngx_str_t hosts;
     ngx_int_t recv_timeout;
     int init_flags;
-    ngx_str_t instances_path;
-    ngx_str_t instance;
-    ngx_str_t instance_value;
+    ngx_array_t *nodes;
     ZooLogLevel log_level;
 } ngx_http_zookeeper_lua_module_main_conf_t;
 
@@ -70,9 +68,9 @@ static ngx_command_t ngx_http_zookeeper_lua_commands[] = {
       0,
       NULL },
 
-    { ngx_string("zookeeper_instances"),
-      NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE2,
-      ngx_http_zookeeper_lua_instances,
+    { ngx_string("zookeeper_ethemeral_node"),
+      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE2,
+      ngx_http_zookeeper_lua_ethemeral_node,
       0,
       0,
       NULL },
@@ -88,14 +86,14 @@ static ngx_command_t ngx_http_zookeeper_lua_commands[] = {
 };
 
 static ngx_http_module_t ngx_zookeeper_lua_ctx = {
-    NULL,                                   /* preconfiguration */
-    ngx_zookeeper_lua_init,                 /* postconfiguration */
-    ngx_http_zookeeper_lua_create_main_conf,/* create main configuration */
-    ngx_http_zookeeper_lua_init_main_conf,  /* init main configuration */
-    NULL,                                   /* create server configuration */
-    NULL,                                   /* merge server configuration */
-    NULL,                                   /* create location configuration */
-    NULL                                    /* merge location configuration */
+    NULL,                                    /* preconfiguration */
+    ngx_zookeeper_lua_init,                  /* postconfiguration */
+    ngx_http_zookeeper_lua_create_main_conf, /* create main configuration */
+    ngx_http_zookeeper_lua_init_main_conf,   /* init main configuration */
+    NULL,                                    /* create server configuration */
+    NULL,                                    /* merge server configuration */
+    NULL,                                    /* create location configuration */
+    NULL                                     /* merge location configuration */
 };
 
 ngx_module_t ngx_zookeeper_lua_module = {
@@ -113,6 +111,14 @@ ngx_module_t ngx_zookeeper_lua_module = {
     NGX_MODULE_V1_PADDING
 };
 
+struct ethemeral_node_s {
+    ngx_array_t *path;
+    ngx_str_t value;
+    ngx_str_t instance;
+    int epoch;
+};
+typedef struct ethemeral_node_s ethemeral_node_t;
+
 static void *
 ngx_http_zookeeper_lua_create_main_conf(ngx_conf_t *cf)
 {
@@ -127,6 +133,7 @@ ngx_http_zookeeper_lua_create_main_conf(ngx_conf_t *cf)
     conf->log_level = ZOO_LOG_LEVEL_ERROR;
     conf->recv_timeout = 10000;
     conf->init_flags = 0;
+    conf->nodes = ngx_array_create(cf->pool, 1000, sizeof(ethemeral_node_t));
 
     return conf;
 }
@@ -207,22 +214,42 @@ ngx_http_zookeeper_lua_read_only(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 }
 
 static char *
-ngx_http_zookeeper_lua_instances(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+ngx_http_zookeeper_lua_ethemeral_node(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
     ngx_http_zookeeper_lua_module_main_conf_t *zookeeper_conf = conf;
     ngx_str_t *values = cf->args->elts;
+    ethemeral_node_t *node;
+    char *s;
+    ngx_str_t *subpath;
 
-    zookeeper_conf->instances_path = values[1];
-    zookeeper_conf->instance_value = values[2];
+    node = ngx_array_push(zookeeper_conf->nodes);
 
-    zookeeper_conf->instance.data = ngx_pcalloc(cf->pool, 1024);
+    node->path = ngx_array_create(cf->pool, 1000, sizeof(ngx_str_t));
+
+    for (s = ngx_strchr(values[1].data + 1, '/'); s; s = ngx_strchr(s + 1, '/'))
+    {
+        subpath = ngx_array_push(node->path);
+        subpath->len = (u_char *)s - values[1].data;
+        subpath->data = ngx_pcalloc(cf->pool, subpath->len + 1);
+        ngx_memcpy(subpath->data, values[1].data, subpath->len);
+    }
+
+    subpath = ngx_array_push(node->path);
+    subpath->data = values[1].data;
+    subpath->len = values[1].len;
+
+    node->value = values[2];
+
+    node->instance.len = values[1].len + node->value.len + 1;
+    node->instance.data = ngx_pcalloc(cf->pool, node->instance.len + 1);
     if (conf == NULL)
     {
         return NULL;
     }
 
-    ngx_snprintf(zookeeper_conf->instance.data, 1024, "%s/%s", zookeeper_conf->instances_path.data, zookeeper_conf->instance_value.data);
-    zookeeper_conf->instance.len = ngx_strlen(zookeeper_conf->instance.data);
+    ngx_snprintf(node->instance.data, node->instance.len + 1, "%s/%s", values[1].data, node->value.data);
+
+    node->epoch = 0;
 
     return NGX_CONF_OK;
 }
@@ -232,16 +259,16 @@ typedef struct
     zhandle_t *handle;
     int connected;
     const clientid_t *client_id;
-    int registered;
     int expired;
+    int epoch;
 } zookeeper_t;
 
 static zookeeper_t zoo = {
     .handle = NULL,
     .connected = 0,
-    .registered = 0,
     .client_id = NULL,
-    .expired = 1
+    .expired = 1,
+    .epoch = 1
 };
 
 ngx_int_t
@@ -374,23 +401,33 @@ rc_str(int rc)
 static void
 ngx_zookeeper_register_ready(int rc, const char *value, const void *data)
 {
-    ngx_http_zookeeper_lua_module_main_conf_t *zookeeper_conf = (ngx_http_zookeeper_lua_module_main_conf_t *) data;
+    ethemeral_node_t *node = (ethemeral_node_t *) data;
 
     if (rc != ZOK)
     {
         if (rc != ZNODEEXISTS)
         {
-            ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                          "Zookeeper can't register ephemeral node: %s", rc_str_s(rc));
-            zoo.registered = 0;
+            if (data)
+            {
+                ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
+                              "Zookeeper can't register ephemeral node %s : %s", node->instance.data, rc_str_s(rc));
+            }
+            else
+            {
+                ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
+                              "Zookeeper can't create node : %s", rc_str_s(rc));
+            }
         }
         return;
     }
 
-    ngx_log_error(NGX_LOG_INFO, ngx_cycle->log, 0,
-                  "Nginx has been registered, instance: %s", zookeeper_conf->instance.data);
+    if (data)
+    {
+        ngx_log_error(NGX_LOG_INFO, ngx_cycle->log, 0,
+                      "Nginx has been registered, instance: %s", node->instance.data);
 
-    zoo.registered = 1;
+        node->epoch = zoo.epoch;
+    }
 
     return;
 }
@@ -405,6 +442,10 @@ static void
 ngx_zookeeper_register_callback(ngx_event_t *ev)
 {
     ngx_http_zookeeper_lua_module_main_conf_t *zookeeper_conf = ngx_http_cycle_get_module_main_conf(ngx_cycle, ngx_zookeeper_lua_module);
+    ethemeral_node_t *nodes = (ethemeral_node_t *)zookeeper_conf->nodes->elts;
+    int rc;
+    ngx_uint_t i, j;
+    ngx_str_t *path;
 
     if (zoo.expired == 1)
     {
@@ -417,7 +458,7 @@ ngx_zookeeper_register_callback(ngx_event_t *ev)
         initialize(ngx_cycle);
     }
 
-    if (zookeeper_conf->instances_path.data == NULL)
+    if (zookeeper_conf->nodes->nelts == 0)
     {
         goto settimer;
     }
@@ -427,22 +468,37 @@ ngx_zookeeper_register_callback(ngx_event_t *ev)
         goto settimer;
     }
 
-    if (zoo.registered == 1)
+    for (i = 0; i < zookeeper_conf->nodes->nelts; ++i)
     {
-        goto settimer;
+        if (zoo.epoch > nodes[i].epoch)
+        {
+            zoo_adelete(zoo.handle, (const char *)nodes[i].instance.data, -1, ngx_zookeeper_delete_ready, NULL);
+
+            path = (ngx_str_t *)nodes[i].path->elts;
+
+            for (j = 0; j < nodes[i].path->nelts; ++j)
+            {
+                rc = zoo_acreate(zoo.handle, (const char *)path[j].data, "", 0,
+                                &ZOO_OPEN_ACL_UNSAFE, 0, ngx_zookeeper_register_ready, NULL);
+
+                if (rc != ZOK)
+                {
+                    ngx_log_error(NGX_LOG_ERR, ev->log, 0,
+                                  "Zookeeper: error create node %s : %s", path[j].data, rc_str_s(rc));
+                }
+            }
+
+            rc = zoo_acreate(zoo.handle, (const char *)nodes[i].instance.data, "", 0,
+                            &ZOO_OPEN_ACL_UNSAFE, ZOO_EPHEMERAL, ngx_zookeeper_register_ready, &nodes[i]);
+
+            if (rc != ZOK)
+            {
+                ngx_log_error(NGX_LOG_ERR, ev->log, 0,
+                              "Zookeeper: error register instance: %s", rc_str_s(rc));
+            }
+        }
     }
 
-    zoo_adelete(zoo.handle, (const char *)zookeeper_conf->instance.data, -1, ngx_zookeeper_delete_ready, NULL);
-
-    int rc;
-    rc = zoo_acreate(zoo.handle, (const char *)zookeeper_conf->instance.data, "", 0,
-                    &ZOO_OPEN_ACL_UNSAFE, ZOO_EPHEMERAL, ngx_zookeeper_register_ready, zookeeper_conf);
-
-    if (rc != ZOK)
-    {
-        ngx_log_error(NGX_LOG_ERR, ev->log, 0,
-                      "Zookeeper: error register instance: %s", rc_str_s(rc));
-    }
 settimer:
 
     if (ngx_exiting)
@@ -514,6 +570,7 @@ session_watcher(zhandle_t *zh,
         if (state == ZOO_CONNECTED_STATE)
         {
             zoo.connected = 1;
+            zoo.epoch = zoo.epoch + 1;
             zoo.client_id = zoo_client_id(zh);
 
             ngx_log_error(NGX_LOG_INFO, ngx_cycle->log, 0,
@@ -526,7 +583,6 @@ session_watcher(zhandle_t *zh,
                               "Zookeeper: disconnected");
             }
             zoo.connected = 0;
-            zoo.registered = 0;
         } else if (state == ZOO_EXPIRED_SESSION_STATE)
         {
             if (zh != NULL)
@@ -534,7 +590,6 @@ session_watcher(zhandle_t *zh,
                 ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0,
                               "Zookeeper: session has been expired");
                 zoo.connected = 0;
-                zoo.registered = 0;
                 zoo.expired = 1;
             }
         }

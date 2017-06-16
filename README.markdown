@@ -66,10 +66,10 @@ Synopsis
 
 ```nginx
 http {
-  zookeeper              127.0.0.1:2181;
-  zookeeper_log_level    debug;
-  zookeeper_recv_timeout 5000;
-  zookeeper_instances    /services/nginx 127.0.0.1:8080;
+  zookeeper                127.0.0.1:2181;
+  zookeeper_log_level      debug;
+  zookeeper_recv_timeout   5000;
+  zookeeper_ethemeral_node /services/nginx 127.0.0.1;
 
   lua_shared_dict config    64k;
   lua_shared_dict zoo_cache 10m;
@@ -81,6 +81,29 @@ http {
     ngx.shared.config:set("zoo.cache.path.ttl", '[' ..
       '{ "path" : "/services/.*", "ttl" : 0 }' ..
    ']')
+  }
+
+  server {
+    listen 8000;
+    zookeeper_ethemeral_node /services/nginx/8000 127.0.0.1:8000;
+
+    location / {
+      return 200 '8000';
+    }
+  }
+
+  server {
+    listen 8001;
+
+    location /a {
+      zookeeper_ethemeral_node /services/nginx/8001/a 127.0.0.1:8001;
+      return 200 '8001:a';
+    }
+
+    location /b {
+      zookeeper_ethemeral_node /services/nginx/8001/b 127.0.0.1:8001;
+      return 200 '8001:b';
+    }
   }
 
   server {
@@ -276,11 +299,11 @@ zookeeper_recv_timeout
 
 Configure Zookeeper socket recv timeout.
 
-zookeeper_instances
+zookeeper_ethemeral_node
 --------------
-* **syntax**: `zookeeper_instances <path/to/instances> <host:port>`
+* **syntax**: `zookeeper_ethemeral_node <path/to/instances> <value>`
 * **default**: `none`
-* **context**: `http`
+* **context**: `http,server,location`
 
 Register nginx in Zookeeper ethemeral node.
 
