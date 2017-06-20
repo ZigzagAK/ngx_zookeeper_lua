@@ -5,6 +5,11 @@
 #include <assert.h>
 #include <zookeeper/zookeeper.h>
 
+#include <sys/utsname.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netdb.h>
+
 #include "ngx_http_lua_api.h"
 
 #define CAST(p, T) ((T)p)
@@ -37,6 +42,8 @@ static char *
 ngx_http_zookeeper_lua_read_only(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 static char *
 ngx_http_zookeeper_lua_ethemeral_node(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
+static char *
+ngx_http_zookeeper_lua_register_port(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 
 typedef struct
 {
@@ -72,6 +79,13 @@ static ngx_command_t ngx_http_zookeeper_lua_commands[] = {
     { ngx_string("zookeeper_ethemeral_node"),
       NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE2,
       ngx_http_zookeeper_lua_ethemeral_node,
+      0,
+      0,
+      NULL },
+
+    { ngx_string("zookeeper_register_port"),
+      NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE2,
+      ngx_http_zookeeper_lua_register_port,
       0,
       0,
       NULL },
@@ -120,10 +134,15 @@ struct ethemeral_node_s {
 };
 typedef struct ethemeral_node_s ethemeral_node_t;
 
+static char ip_address[128] = "?.?.?.?";
+
 static void *
 ngx_http_zookeeper_lua_create_main_conf(ngx_conf_t *cf)
 {
     ngx_http_zookeeper_lua_module_main_conf_t *conf;
+    struct utsname host;
+    struct addrinfo *servinfo, hints, *p;
+    struct sockaddr_in *h;
 
     conf = ngx_pcalloc(cf->pool, sizeof(ngx_http_zookeeper_lua_module_main_conf_t));
     if (conf == NULL)
@@ -135,6 +154,29 @@ ngx_http_zookeeper_lua_create_main_conf(ngx_conf_t *cf)
     conf->recv_timeout = 10000;
     conf->init_flags = 0;
     conf->nodes = ngx_array_create(cf->pool, 1000, sizeof(ethemeral_node_t));
+
+    if (0 == uname(&host))
+    {
+        memset(&hints, 0, sizeof hints);
+        hints.ai_family = AF_INET;
+        hints.ai_socktype = SOCK_STREAM;
+
+        if (0 == getaddrinfo(host.nodename, NULL, &hints, &servinfo))
+        {
+            for (p = servinfo; p != NULL; p = p->ai_next)
+            {
+                h = (struct sockaddr_in *) p->ai_addr;
+                if (h->sin_addr.s_addr != 0)
+                {
+                    strncpy(ip_address, inet_ntoa(h->sin_addr), sizeof(ip_address) - 1);
+                    break;
+                }
+            }
+        }
+    }
+
+    freeaddrinfo(servinfo);
+    servinfo = NULL;
 
     return conf;
 }
@@ -254,6 +296,50 @@ ngx_http_zookeeper_lua_ethemeral_node(ngx_conf_t *cf, ngx_command_t *cmd, void *
 
     return NGX_CONF_OK;
 }
+
+static char *
+ngx_http_zookeeper_lua_register_port(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+{
+    ngx_http_zookeeper_lua_module_main_conf_t *zookeeper_conf = conf;
+    ngx_str_t *values = cf->args->elts;
+    ethemeral_node_t *node;
+    char *s;
+    ngx_str_t *subpath;
+
+    node = ngx_array_push(zookeeper_conf->nodes);
+
+    node->path = ngx_array_create(cf->pool, 1000, sizeof(ngx_str_t));
+
+    for (s = ngx_strchr(values[1].data + 1, '/'); s; s = ngx_strchr(s + 1, '/'))
+    {
+        subpath = ngx_array_push(node->path);
+        subpath->len = (u_char *)s - values[1].data;
+        subpath->data = ngx_pcalloc(cf->pool, subpath->len + 1);
+        ngx_memcpy(subpath->data, values[1].data, subpath->len);
+    }
+
+    subpath = ngx_array_push(node->path);
+    subpath->data = values[1].data;
+    subpath->len = values[1].len;
+
+    node->value.len = ngx_strlen(ip_address) + values[2].len + 1;
+    node->value.data = ngx_pcalloc(cf->pool, node->value.len + 1);
+    ngx_snprintf(node->value.data, node->value.len, "%s:%s", ip_address, values[2].data);
+
+    node->instance.len = values[1].len + node->value.len + 1;
+    node->instance.data = ngx_pcalloc(cf->pool, node->instance.len + 1);
+    if (conf == NULL)
+    {
+        return NULL;
+    }
+
+    ngx_snprintf(node->instance.data, node->instance.len + 1, "%s/%s", values[1].data, node->value.data);
+
+    node->epoch = 0;
+
+    return NGX_CONF_OK;
+}
+
 
 typedef struct
 {

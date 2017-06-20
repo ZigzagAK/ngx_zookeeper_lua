@@ -85,7 +85,7 @@ http {
 
   server {
     listen 8000;
-    zookeeper_ethemeral_node /services/nginx/8000 127.0.0.1:8000;
+    zookeeper_register_port /services/nginx/8000 8000;
 
     location / {
       return 200 '8000';
@@ -249,6 +249,14 @@ zookeeper_ethemeral_node
 * **context**: `http,server,location`
 
 Register nginx in Zookeeper ethemeral node.
+
+zookeeper_register_port
+--------------
+* **syntax**: `zookeeper_register_port <path/to/instances> <port>`
+* **default**: `none`
+* **context**: `server`
+
+Register nginx in Zookeeper ethemeral node with host_IPv4:port.
 
 [Back to TOC](#table-of-contents)
 
