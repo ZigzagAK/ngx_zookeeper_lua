@@ -69,7 +69,7 @@ http {
   zookeeper                127.0.0.1:2181;
   zookeeper_log_level      debug;
   zookeeper_recv_timeout   5000;
-  zookeeper_ethemeral_node /services/nginx 127.0.0.1;
+  zookeeper_ethemeral_node /services/nginx 127.0.0.1 "nginx";
 
   lua_shared_dict config    64k;
   lua_shared_dict zoo_cache 10m;
@@ -85,7 +85,7 @@ http {
 
   server {
     listen 8000;
-    zookeeper_register_port /services/nginx/8000 8000;
+    zookeeper_register_port /services/nginx/8000 8000 "nginx-8080";
 
     location / {
       return 200 '8000';
@@ -244,7 +244,7 @@ Configure Zookeeper socket recv timeout.
 
 zookeeper_ethemeral_node
 --------------
-* **syntax**: `zookeeper_ethemeral_node <path/to/instances> <value>`
+* **syntax**: `zookeeper_ethemeral_node <path/to/instances> <value> [data]`
 * **default**: `none`
 * **context**: `http,server,location`
 
@@ -252,7 +252,7 @@ Register nginx in Zookeeper ethemeral node.
 
 zookeeper_register_port
 --------------
-* **syntax**: `zookeeper_register_port <path/to/instances> <port>`
+* **syntax**: `zookeeper_register_port <path/to/instances> <port> [data]`
 * **default**: `none`
 * **context**: `server`
 

@@ -77,14 +77,14 @@ static ngx_command_t ngx_http_zookeeper_lua_commands[] = {
       NULL },
 
     { ngx_string("zookeeper_ethemeral_node"),
-      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE2,
+      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE2|NGX_CONF_TAKE3,
       ngx_http_zookeeper_lua_ethemeral_node,
       0,
       0,
       NULL },
 
     { ngx_string("zookeeper_register_port"),
-      NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE2,
+      NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE2|NGX_CONF_TAKE3,
       ngx_http_zookeeper_lua_register_port,
       0,
       0,
@@ -130,6 +130,7 @@ struct ethemeral_node_s {
     ngx_array_t *path;
     ngx_str_t value;
     ngx_str_t instance;
+    ngx_str_t data;
     int epoch;
 };
 typedef struct ethemeral_node_s ethemeral_node_t;
@@ -285,7 +286,7 @@ ngx_http_zookeeper_lua_ethemeral_node(ngx_conf_t *cf, ngx_command_t *cmd, void *
 
     node->instance.len = values[1].len + node->value.len + 1;
     node->instance.data = ngx_pcalloc(cf->pool, node->instance.len + 1);
-    if (conf == NULL)
+    if (node->instance.data == NULL)
     {
         return NULL;
     }
@@ -293,6 +294,22 @@ ngx_http_zookeeper_lua_ethemeral_node(ngx_conf_t *cf, ngx_command_t *cmd, void *
     ngx_snprintf(node->instance.data, node->instance.len + 1, "%s/%s", values[1].data, node->value.data);
 
     node->epoch = 0;
+
+    if (cf->args->nelts == 4)
+    {
+        node->data.len = values[3].len;
+        node->data.data = ngx_pcalloc(cf->pool, node->data.len + 1);
+        if (node->data.data == NULL)
+        {
+            return NULL;
+        }
+        ngx_memcpy(node->data.data, values[3].data, node->data.len);
+    }
+    else
+    {
+        node->data.data = (u_char *) "";
+        node->data.len = 0;
+    }
 
     return NGX_CONF_OK;
 }
@@ -328,7 +345,7 @@ ngx_http_zookeeper_lua_register_port(ngx_conf_t *cf, ngx_command_t *cmd, void *c
 
     node->instance.len = values[1].len + node->value.len + 1;
     node->instance.data = ngx_pcalloc(cf->pool, node->instance.len + 1);
-    if (conf == NULL)
+    if (node->instance.data == NULL)
     {
         return NULL;
     }
@@ -337,9 +354,24 @@ ngx_http_zookeeper_lua_register_port(ngx_conf_t *cf, ngx_command_t *cmd, void *c
 
     node->epoch = 0;
 
+    if (cf->args->nelts == 4)
+    {
+        node->data.len = values[3].len;
+        node->data.data = ngx_pcalloc(cf->pool, node->data.len + 1);
+        if (node->data.data == NULL)
+        {
+            return NULL;
+        }
+        ngx_memcpy(node->data.data, values[3].data, node->data.len);
+    }
+    else
+    {
+        node->data.data = (u_char *) "";
+        node->data.len = 0;
+    }
+
     return NGX_CONF_OK;
 }
-
 
 typedef struct
 {
@@ -575,7 +607,7 @@ ngx_zookeeper_register_callback(ngx_event_t *ev)
                 }
             }
 
-            rc = zoo_acreate(zoo.handle, (const char *)nodes[i].instance.data, "", 0,
+            rc = zoo_acreate(zoo.handle, (const char *)nodes[i].instance.data, (const char *)nodes[i].data.data, nodes[i].data.len,
                             &ZOO_OPEN_ACL_UNSAFE, ZOO_EPHEMERAL, ngx_zookeeper_register_ready, &nodes[i]);
 
             if (rc != ZOK)
