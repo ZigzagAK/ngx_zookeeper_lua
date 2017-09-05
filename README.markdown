@@ -3,6 +3,10 @@ Name
 
 ngx_zookeeper_lua - Lua bindings to interract with Zookeeper.
 
+Build status
+============
+[![Build Status](https://travis-ci.org/ZigzagAK/ngx_zookeeper_lua.svg)](https://travis-ci.org/ZigzagAK/ngx_zookeeper_lua)
+
 Table of Contents
 =================
 
@@ -42,14 +46,6 @@ Install
 
 Build nginx with Zookeeper support.
 All dependencies are downloaded automaticaly.
-
-Pre requirenments (for example centos/redhat)
-
-```
-sudo yum install gcc-c++.x86_64 zlib-devel openssl-devel
-```
-
-Build
 
 ```
 git clone git@github.com:ZigzagAK/ngx_zookeeper_lua.git

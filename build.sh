@@ -15,19 +15,23 @@ VERSION="1.11.6"
 ZOO_VERSION="3.5.2-alpha"
 PCRE_VERSION="8.39"
 LUAJIT_VERSION="2.1.0-beta2"
+ZLIB_VERSION="1.2.11"
 
-SUFFIX="-zoo"
+SUFFIX=""
 
 BASE_PREFIX="$DIR/build"
 INSTALL_PREFIX="$DIR/install"
 
 export ZOO_PREFIX="$DIR/build/deps/zookeeper"
-
-PCRE_PREFIX="$DIR/build/pcre-$PCRE_VERSION"
 JIT_PREFIX="$DIR/build/deps/luajit"
 
 export LUAJIT_INC="$JIT_PREFIX/usr/local/include/luajit-2.1"
 export LUAJIT_LIB="$JIT_PREFIX/usr/local/lib"
+
+export PCRE_SOURCES="$DIR/build/pcre-$PCRE_VERSION"
+export ZLIB_SOURCES="$DIR/build/zlib-$ZLIB_VERSION"
+
+EMBEDDED_OPTS="--with-pcre=$PCRE_SOURCES --with-zlib=$ZLIB_SOURCES"
 
 export LD_LIBRARY_PATH="$JIT_PREFIX/lib:$ZOO_PREFIX/lib"
 
@@ -47,7 +51,7 @@ fi
 function build_zoo() {
   echo "Build Zookeeper"
   cd zookeeper-$ZOO_VERSION/src/c
-  ./configure --prefix="$ZOO_PREFIX" --libdir="$ZOO_PREFIX/lib"> /dev/null
+  ./configure --prefix="$ZOO_PREFIX" --libdir="$ZOO_PREFIX/lib" > /dev/null
   make -j 8 > /dev/null
   r=$?
   if [ $r -ne 0 ]; then
@@ -81,13 +85,11 @@ function build_cJSON() {
 }
 
 function build_debug() {
-  cd nginx-$VERSION
+  cd nginx-$VERSION$SUFFIX
   echo "Configuring debug nginx-$VERSION$SUFFIX"
   ./configure --prefix="$INSTALL_PREFIX/nginx-$VERSION$SUFFIX" \
-              --with-pcre=$PCRE_PREFIX \
-              --with-stream \
+               $EMBEDDED_OPTS \
               --with-debug \
-              --with-cc-opt="-O0" \
               --add-module=../ngx_devel_kit \
               --add-module=../lua-nginx-module \
               --add-module=../../../ngx_zookeeper_lua > /dev/null
@@ -98,7 +100,7 @@ function build_debug() {
   fi
 
   echo "Build debug nginx-$VERSION$SUFFIX"
-  make -j 8 > /dev/null
+  make -j8 > /dev/null
 
   r=$?
   if [ $r -ne 0 ]; then
@@ -107,15 +109,15 @@ function build_debug() {
   make install > /dev/null
 
   mv "$INSTALL_PREFIX/nginx-$VERSION$SUFFIX/sbin/nginx" "$INSTALL_PREFIX/nginx-$VERSION$SUFFIX/sbin/nginx.debug"
+
   cd ..
 }
 
 function build_release() {
-  cd nginx-$VERSION
+  cd nginx-$VERSION$SUFFIX
   echo "Configuring release nginx-$VERSION$SUFFIX"
   ./configure --prefix="$INSTALL_PREFIX/nginx-$VERSION$SUFFIX" \
-              --with-pcre=$PCRE_PREFIX \
-              --with-stream \
+              $EMBEDDED_OPTS \
               --add-module=../ngx_devel_kit \
               --add-module=../lua-nginx-module \
               --add-module=../../../ngx_zookeeper_lua > /dev/null
@@ -126,7 +128,7 @@ function build_release() {
   fi
 
   echo "Build release nginx-$VERSION$SUFFIX"
-  make -j 8 > /dev/null
+  make -j8 > /dev/null
 
   r=$?
   if [ $r -ne 0 ]; then
@@ -146,12 +148,19 @@ function download_module() {
   else
     if [ $download -eq 1 ] || [ ! -e $2.tar.gz ]; then
       echo "Download $2 branch=$3"
-      curl -s -L -O https://github.com/$1/$2/archive/$3.zip
-      unzip -q $3.zip
-      mv $2-$3 $2
+      curl -s -L -o $2.zip https://github.com/$1/$2/archive/$3.zip
+      unzip -q $2.zip
+      mv $2-* $2
       tar zcf $2.tar.gz $2
-      rm -rf $2 $3.zip
+      rm -rf $2-* $2 $2.zip
     fi
+  fi
+}
+
+function gitclone() {
+  git clone $1 > /dev/null 2> /tmp/err
+  if [ $? -ne 0 ]; then
+    cat /tmp/err
   fi
 }
 
@@ -191,6 +200,15 @@ function download_pcre() {
   fi
 }
 
+function download_dep() {
+  if [ $download -eq 1 ] || [ ! -e $2-$3.tar.gz ]; then
+    echo "Download $2-$3.$4"
+    curl -s -L -o $2-$3.tar.gz $1/$2-$3.$4
+  else
+    echo "Get $2-$3.tar.gz"
+  fi
+}
+
 function extract_downloads() {
   cd download
 
@@ -205,23 +223,23 @@ function extract_downloads() {
 
 function download() {
   mkdir build                2>/dev/null
-  mkdir build/debug          2>/dev/null
   mkdir build/deps           2>/dev/null
 
   mkdir download             2>/dev/null
-  mkdir download/debug       2>/dev/null
   mkdir download/lua_modules 2>/dev/null
 
   cd download
 
-  download_nginx
   download_luajit
   download_zoo
   download_pcre
+  download_nginx
 
   download_module simpl       ngx_devel_kit                    master
-  download_module openresty   lua-nginx-module                 master
+  download_module ZigzagAK    lua-nginx-module                 mixed
   download_module openresty   lua-cjson                        master
+
+  download_dep http://zlib.net                                 zlib      $ZLIB_VERSION      tar.gz
 
   cd ..
 }
@@ -244,7 +262,7 @@ function install_files() {
 function build() {
   cd build
 
-  patch -p0 < ../lua-cjson-Makefile.patch
+  patch -N -p0 < ../lua-cjson-Makefile.patch
 
   if [ $build_deps -eq 1 ] || [ ! -e deps/luajit ]; then
     build_luajit
@@ -320,18 +338,18 @@ function install_lua_modules() {
 
   cd download/lua_modules
 
-  install_resty_module openresty    lua-resty-core                      lib                .   master $download
-  install_resty_module ZigzagAK     nginx-resty-auto-healthcheck-config scripts/start.sh   .   master $download
-  install_resty_module ZigzagAK     nginx-resty-auto-healthcheck-config scripts/stop.sh    .   master 0
-  install_resty_module ZigzagAK     nginx-resty-auto-healthcheck-config scripts/debug.sh   .   master 0
-  install_resty_module ZigzagAK     nginx-resty-auto-healthcheck-config scripts/restart.sh .   master 0
-  install_resty_module ZigzagAK     nginx-resty-auto-healthcheck-config lua/system.lua     lua master 0
+  install_resty_module ZigzagAK     nginx-resty-auto-healthcheck-config scripts/start.sh   . master $download
+  install_resty_module ZigzagAK     nginx-resty-auto-healthcheck-config scripts/stop.sh    . master 0
+  install_resty_module ZigzagAK     nginx-resty-auto-healthcheck-config scripts/debug.sh   . master 0
+  install_resty_module ZigzagAK     nginx-resty-auto-healthcheck-config scripts/restart.sh . master 0
+  install_resty_module ZigzagAK     nginx-resty-auto-healthcheck-config lua                . master 0
+  install_resty_module ZigzagAK     nginx-resty-auto-healthcheck-config conf               . master 0
 
   cd ../..
 
-  install_file lua  .
   install_file conf .
   install_file html .
+  install_file lua .
 }
 
 install_lua_modules
@@ -344,15 +362,9 @@ kernel_name=$(uname -s)
 kernel_version=$(uname -r)
 
 cd install
-tar zcvf nginx-$VERSION$SUFFIX-$kernel_name-$kernel_version.tar.gz nginx-$VERSION$SUFFIX
 
-gunzip -c nginx-$VERSION$SUFFIX-$kernel_name-$kernel_version.tar.gz | tar --list | sort | diff ../t/dist_content.txt -
-r=$?
-if [ $r -eq 0 ]; then
-  rm -rf nginx-$VERSION$SUFFIX
-else
-  rm nginx-$VERSION$SUFFIX-$kernel_name-$kernel_version.tar.gz
-fi
+tar zcvf nginx-$VERSION$SUFFIX-$kernel_name-$kernel_version.tar.gz nginx-$VERSION$SUFFIX
+rm -rf nginx-$VERSION$SUFFIX
 
 cd ..
 
