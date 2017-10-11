@@ -69,9 +69,9 @@ local function save_in_cache(prefix, znode, v, stat)
   if ttl == 0 then
     return
   end
-    
+
   local cached = cjson.encode({ stat = stat, value = v })
-    
+
   local ok, err = CACHE:set(prefix .. ":" .. znode, cached, zoo_cache_ttl)
 
   if ok then
@@ -218,7 +218,7 @@ end
 
 function _M.create_path(znode)
   local path = "/"
-  
+
   for p in znode:gmatch("/([^/]+)")
   do
     local ok, err = create(path .. p)
@@ -259,10 +259,10 @@ function _M.delete_recursive(znode)
   if not nodes then
     return nil, err
   end
-  
+
   for i=1,#nodes
   do
-    ok, err = delete_recursive(znode .. "/" .. nodes[i])
+    local ok = delete_recursive(znode .. "/" .. nodes[i])
     if not ok then
       break
     end
