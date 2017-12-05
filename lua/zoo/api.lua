@@ -92,7 +92,7 @@ function _M.tree(znode, need_stat)
   if not ok then
     r = { error = r }
   end
-  
+
   return r
 end
 
