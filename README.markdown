@@ -296,8 +296,7 @@ set
 
 **context:** *&#42;_by_lua&#42;*
 
-Set value of the `znode`. Version may be nil (no version check).
-`stat`: { czxid, mzxid, ctime, mtime, version, cversion, aversion, ephemeralOwner, dataLength, numChildren, pzxid }
+Set value of the `znode`. Version may be nil (no version check). `value` may be a table (converted to json on store).
 
 Returns znode information on success, or nil and a string describing an error otherwise.
 

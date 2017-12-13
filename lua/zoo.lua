@@ -1,11 +1,11 @@
-local zoo = require 'ngx.zookeeper'
+local zoo    = require "ngx.zookeeper"
 local system = require "system"
-local cjson = require "cjson"
+local cjson  = require "cjson"
 
 local timeout = zoo.timeout()
 
 local _M = {
-  _VERSION = '2.0.0',
+  _VERSION = "2.2.0",
 
   errors = {
     ZOO_TIMEOUT = "TIMEOUT"
@@ -26,11 +26,70 @@ local childrens
 local CACHE = ngx.shared.zoo_cache
 local CONFIG = ngx.shared.config
 
+local pcall = pcall
+local ipairs = ipairs
+local unpack = unpack
+local type = type
+local now, update_time = ngx.now, ngx.update_time
+local ngx_log = ngx.log
+local sleep = ngx.sleep
+local WARN, DEBUG = ngx.WARN, ngx.DEBUG
+local cat = table.concat
+local sub = string.sub
+local rep = string.rep
+local tconcat = table.concat
+
+local json_decode = cjson.decode
+local json_encode = cjson.encode
+
 local zoo_cache_on = CONFIG:get("zoo.cache.on") or true
 local zoo_cache_ttl = CONFIG:get("zoo.cache.ttl") or 60
-local zoo_cache_path_ttl = cjson.decode(CONFIG:get("zoo.cache.path.ttl") or {})
+local zoo_cache_path_ttl = json_decode(CONFIG:get("zoo.cache.path.ttl") or {})
 
 table.sort(zoo_cache_path_ttl, function(l, r) return #l.path > #r.path end)
+
+local function json_pretty_encode(dt, lf, id, ac)
+  local s, e = json_encode(dt)
+  if not s then return s, e end
+  lf, id, ac = lf or "\n", id or "    ", ac or " "
+  local i, j, k, n, r, p, q  = 1, 0, 0, #s, {}, nil, nil
+  local al = sub(ac, -1) == "\n"
+  for x = 1, n do
+    local c = sub(s, x, x)
+    if not q and (c == "{" or c == "[") then
+      r[i] = p == ":" and cat{ c, lf } or cat{ rep(id, j), c, lf }
+      j = j + 1
+    elseif not q and (c == "}" or c == "]") then
+      j = j - 1
+      if p == "{" or p == "[" then
+        i = i - 1
+        r[i] = cat{ rep(id, j), p, c }
+      else
+        r[i] = cat{ lf, rep(id, j), c }
+      end
+    elseif not q and c == "," then
+      r[i] = cat{ c, lf }
+      k = -1
+    elseif not q and c == ":" then
+      r[i] = cat{ c, ac }
+      if al then
+        i = i + 1
+        r[i] = rep(id, j)
+      end
+    else
+      if c == '"' and p ~= "\\" then
+        q = not q and true or nil
+      end
+      if j ~= k then
+        r[i] = rep(id, j)
+        i, k = i + 1, j
+      end
+      r[i] = c
+    end
+    p, i = c, i + 1
+  end
+  return cat(r)
+end
 
 local function get_ttl(znode)
   for _, z in ipairs(zoo_cache_path_ttl)
@@ -43,16 +102,44 @@ local function get_ttl(znode)
 end
 
 local function get_expires()
-  ngx.update_time()
-  return ngx.now() * 1000 + timeout
+  update_time()
+  return now() * 1000 + timeout
 end
 
-local function sleep(sec)
-  local ok = pcall(ngx.sleep, sec)
-  if not ok then
-    ngx.log(ngx.WARN, "blocking sleep function is used")
+local function suspend(sec)
+  if not pcall(sleep, sec) then
+    ngx_log(WARN, "blocking sleep function is used")
     system.sleep(sec)
   end
+end
+
+local function zoo_call(fun)
+  local sc, err = fun()
+  if not sc then
+    return nil, err
+  end
+
+  local expires = get_expires()
+  local completed, value, stat
+
+  repeat
+    suspend(0.001)
+    local ok, err = pcall(function()
+      completed, value, err, stat = zoo.check_completition(sc)
+      return true
+    end)
+    if not ok then
+      zoo.forgot(sc)
+      return nil, err
+    end
+  until completed or now() * 1000 > expires
+
+  if completed then
+    return { value, stat }
+  end
+
+  zoo.forgot(sc)
+  return nil, errors.ZOO_TIMEOUT
 end
 
 function _M.clear_in_cache(znode)
@@ -70,30 +157,25 @@ local function save_in_cache(prefix, znode, v, stat)
     return
   end
 
-  local cached = cjson.encode({ stat = stat, value = v })
+  local cached = json_encode { stat = stat, value = v }
 
   local ok, err = CACHE:set(prefix .. ":" .. znode, cached, zoo_cache_ttl)
 
   if ok then
-    ngx.log(ngx.DEBUG, "zoo set cached: ttl=" .. ttl .. "s," .. znode, "=", cached)
+    ngx_log(DEBUG, "zoo set cached: ttl=" .. ttl .. "s," .. znode, "=", cached)
   else
-    ngx.log(ngx.WARN, "zoo set cached: ", err)
+    ngx_log(WARN, "zoo set cached: ", err)
   end
 end
 
 local function get_from_cache(prefix, znode)
-  if not zoo_cache_on then
-    return nil
+  if zoo_cache_on then
+    local cached = CACHE:get(prefix .. ":" .. znode)
+    if cached then
+      ngx_log(DEBUG, "zoo get cached: ", znode, "=", cached)
+      return json_decode(cached)
+    end
   end
-
-  local cached = CACHE:get(prefix .. ":" .. znode)
-  if not cached then
-    return nil
-  end
-
-  ngx.log(ngx.DEBUG, "zoo get cached: ", znode, "=", cached)
-
-  return cjson.decode(cached)
 end
 
 function _M.get(znode)
@@ -102,31 +184,28 @@ function _M.get(znode)
     return cached.value, cached.stat
   end
 
-  local sc, err = zoo.aget(znode)
-  if not sc then
+  local data, err = zoo_call(function()
+    return zoo.aget(znode)
+  end)
+
+  if not data then
     return nil, nil, err
   end
 
-  local expires = get_expires()
-  local completed, value, err, stat
+  local value, stat = unpack(data)
 
-  while not completed and ngx.now() * 1000 < expires
-  do
-    sleep(0.001)
-    completed, value, err, stat = zoo.check_completition(sc)
-  end
+  ngx_log(DEBUG, "zoo get: ", znode, "=", value)
 
-  if not completed then
-    zoo.forgot(sc)
-    return nil, nil, errors.ZOO_TIMEOUT
-  end
-
-  if err then
-    return nil, nil, err
+  if value and value:match("^%s*{") then
+    -- may be json
+    local ok, object = pcall(json_decode, value)
+    if ok then
+      -- value is valid object
+      value = object
+    end
   end
 
   save_in_cache("v", znode, value or "", stat)
-  ngx.log(ngx.DEBUG, "zoo get: ", znode, "=", value)
 
   return value or "", stat
 end
@@ -137,83 +216,42 @@ function _M.childrens(znode)
     return cached.value or {}
   end
 
-  local sc, err = zoo.achildrens(znode)
-  if not sc then
+  local data, err = zoo_call(function()
+    return zoo.achildrens(znode)
+  end)
+
+  if not data then
     return nil, err
   end
 
-  local expires = get_expires()
-  local completed, childs, err
-
-  while not completed and ngx.now() * 1000 < expires
-  do
-    sleep(0.001)
-    completed, childs, err = zoo.check_completition(sc)
-  end
-
-  if not completed then
-    zoo.forgot(sc)
-    return nil, errors.ZOO_TIMEOUT
-  end
-
-  if err then
-    return nil, err
-  end
+  local childs, stat = unpack(data)
 
   save_in_cache("c", znode, childs, nil)
-  ngx.log(ngx.DEBUG, "zoo get: ", znode, "=", cjson.encode(childs))
+  ngx_log(DEBUG, "zoo get: ", znode, "=", json_encode(childs))
 
   return childs or {}
 end
 
 function _M.set(znode, value, version)
-  local sc, err = zoo.aset(znode, value, version or -1)
-  if not sc then
-    return nil, err
-  end
+  value = type(value) == "table" and (
+    #value == 0 and json_pretty_encode(value) or tconcat(value, "\n")
+  ) or value or ""
 
-  local expires = get_expires()
-  local completed, void, err, stat
+  local data, err = zoo_call(function()
+    return zoo.aset(znode, value, version or -1)
+  end)
 
-  while not completed and ngx.now() * 1000 < expires
-  do
-    sleep(0.001)
-    completed, void, err, stat = zoo.check_completition(sc)
-  end
-
-  if not completed then
-    zoo.forgot(sc)
-    return nil, errors.ZOO_TIMEOUT
-  end
-
-  return stat, err
+  return data and data[2] or nil, err
 end
 
 function _M.create(znode, value, flags)
-  local sc, err = zoo.acreate(znode, value or "", flags or 0)
-  if not sc then
-    return nil, err
-  end
+  value = type(value) == "table" and json_encode(value) or value or ""
 
-  local expires = get_expires()
-  local completed, result, err
+  local data, err = zoo_call(function()
+    return zoo.acreate(znode, value, flags or 0)
+  end)
 
-  while not completed and ngx.now() * 1000 < expires
-  do
-    sleep(0.001)
-    completed, result, err = zoo.check_completition(sc)
-  end
-
-  if not completed then
-    zoo.forgot(sc)
-    return nil, errors.ZOO_TIMEOUT
-  end
-
-  if err then
-    return nil, err
-  end
-
-  return result or "", err
+  return data and (data[1] or "") or nil, err
 end
 
 function _M.create_path(znode)
@@ -228,30 +266,15 @@ function _M.create_path(znode)
     path = path .. p .. "/"
   end
 
-  return true, nil
+  return true
 end
 
 function _M.delete(znode)
-  local sc, err = zoo.adelete(znode)
-  if not sc then
-    return nil, err
-  end
+  local data, err = zoo_call(function()
+    return zoo.adelete(znode)
+  end)
 
-  local expires = get_expires()
-  local completed, void, err
-
-  while not completed and ngx.now() * 1000 < expires
-  do
-    sleep(0.001)
-    completed, void, err = zoo.check_completition(sc)
-  end
-
-  if not completed then
-    zoo.forgot(sc)
-    return nil, errors.ZOO_TIMEOUT
-  end
-
-  return not err, err
+  return data and true or false, err
 end
 
 function _M.delete_recursive(znode)
@@ -276,11 +299,11 @@ function _M.connected()
 end
 
 do
-  errors = _M.errors
-  create = _M.create
-  delete = _M.delete
+  errors           = _M.errors
+  create           = _M.create
+  delete           = _M.delete
   delete_recursive = _M.delete_recursive
-  childrens = _M.childrens
+  childrens        = _M.childrens
 end
 
 return _M

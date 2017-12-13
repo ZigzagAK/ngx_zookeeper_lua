@@ -1,8 +1,15 @@
 local _M = {
-  _VERSION = "2.0.0"
+  _VERSION = "2.2.0"
 }
 
 local zoo = require "zoo"
+
+local pcall = pcall
+local type = type
+local assert = assert
+local pairs = pairs
+local ngx_log = ngx.log
+local DEBUG = ngx.DEBUG
 
 function _M.get(znode)
   local value, stat, err = zoo.get(znode)
@@ -37,13 +44,13 @@ function _M.delete(znode, recursive)
 end
 
 function _M.tree(znode, need_stat)
+  local cjson = require "cjson"
+
   local subtree
 
   subtree = function(znode)
     local value, stat, err = zoo.get(znode)
-    if not value then
-      error(err)
-    end
+    assert(value, err)
 
     local tree = {}
 
@@ -53,17 +60,16 @@ function _M.tree(znode, need_stat)
     end
 
     if stat and stat.numChildren == 0 then
-      return value
+      return type(value) == "table" and {
+        value = value
+      } or value
     end
 
     if #value ~= 0 then
       tree.value = value
     end
 
-    local childs, err = zoo.childrens(znode)
-    if not childs then
-      error(err)
-    end
+    local childs, err = assert(zoo.childrens(znode))
 
     if not znode:match("/$") then
       znode = znode .. "/"
@@ -100,18 +106,12 @@ function _M.import(root, json)
   local cjson = require "cjson"
 
   local create_in_depth = function(zoo_path)
-    local ok, err = zoo.create_path(zoo_path)
-    if not ok then
-      error(err)
-    end
+    assert(zoo.create_path(zoo_path))
   end
 
   local set = function(path, value)
-    ngx.log(ngx.DEBUG, "zoo import: set znode=" .. path .. ", value=" .. value)
-    local ok, err = zoo.set(path, value)
-    if not ok then
-      error(err)
-    end
+    ngx_log(DEBUG, "zoo import: set znode=", path, ", value=", cjson.encode(value))
+    assert(zoo.set(path, value))
   end
 
   local save_subtree
