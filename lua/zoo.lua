@@ -34,7 +34,6 @@ local now, update_time = ngx.now, ngx.update_time
 local ngx_log = ngx.log
 local sleep = ngx.sleep
 local WARN, DEBUG = ngx.WARN, ngx.DEBUG
-local cat = table.concat
 local sub = string.sub
 local rep = string.rep
 local tconcat = table.concat
@@ -57,21 +56,21 @@ local function json_pretty_encode(dt, lf, id, ac)
   for x = 1, n do
     local c = sub(s, x, x)
     if not q and (c == "{" or c == "[") then
-      r[i] = p == ":" and cat{ c, lf } or cat{ rep(id, j), c, lf }
+      r[i] = p == ":" and tconcat{ c, lf } or tconcat{ rep(id, j), c, lf }
       j = j + 1
     elseif not q and (c == "}" or c == "]") then
       j = j - 1
       if p == "{" or p == "[" then
         i = i - 1
-        r[i] = cat{ rep(id, j), p, c }
+        r[i] = tconcat{ rep(id, j), p, c }
       else
-        r[i] = cat{ lf, rep(id, j), c }
+        r[i] = tconcat{ lf, rep(id, j), c }
       end
     elseif not q and c == "," then
-      r[i] = cat{ c, lf }
+      r[i] = tconcat{ c, lf }
       k = -1
     elseif not q and c == ":" then
-      r[i] = cat{ c, ac }
+      r[i] = tconcat{ c, ac }
       if al then
         i = i + 1
         r[i] = rep(id, j)
@@ -88,7 +87,7 @@ local function json_pretty_encode(dt, lf, id, ac)
     end
     p, i = c, i + 1
   end
-  return cat(r)
+  return tconcat(r)
 end
 
 local function get_ttl(znode)
