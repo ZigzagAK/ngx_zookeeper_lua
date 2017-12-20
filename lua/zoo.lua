@@ -26,7 +26,7 @@ local childrens
 local CACHE = ngx.shared.zoo_cache
 local CONFIG = ngx.shared.config
 
-local pcall = pcall
+local pcall, xpcall = pcall, xpcall
 local ipairs = ipairs
 local unpack = unpack
 local type = type
@@ -123,18 +123,20 @@ local function zoo_call(fun)
 
   repeat
     suspend(0.001)
-    local ok, err = pcall(function()
+    if not xpcall(function()
       completed, value, err, stat = zoo.check_completition(sc)
       return true
-    end)
-    if not ok then
+    end, function(e)
+      err = e
+      return e
+    end) then
       zoo.forgot(sc)
       return nil, err
     end
   until completed or now() * 1000 > expires
 
   if completed then
-    return { value, stat }
+    return not err and { value, stat } or nil, err
   end
 
   zoo.forgot(sc)

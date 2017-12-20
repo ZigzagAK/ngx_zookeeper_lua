@@ -1400,7 +1400,7 @@ ngx_zookeeper_set_ready(int rc, const struct Stat *stat, const void *data)
 
     ngx_zookeeper_void_ready(rc, data);
 
-    if (stat)
+    if (rc == ZOK && stat)
     {
         memcpy(&r->stat, stat, sizeof(struct Stat));
     }
