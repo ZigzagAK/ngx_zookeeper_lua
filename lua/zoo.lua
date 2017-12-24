@@ -41,7 +41,7 @@ local tconcat = table.concat
 local json_decode = cjson.decode
 local json_encode = cjson.encode
 
-local zoo_cache_on = CONFIG:get("zoo.cache.on") or true
+local zoo_cache_on = CONFIG:get("zoo.cache.on")
 local zoo_cache_ttl = CONFIG:get("zoo.cache.ttl") or 60
 local zoo_cache_path_ttl = json_decode(CONFIG:get("zoo.cache.path.ttl") or {})
 

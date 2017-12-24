@@ -11,7 +11,7 @@ build_deps=0
 
 DIR="$(pwd)"
 
-VERSION="1.11.6"
+VERSION="1.13.6"
 ZOO_VERSION="3.5.2-alpha"
 PCRE_VERSION="8.39"
 LUAJIT_VERSION="2.1.0-beta2"
