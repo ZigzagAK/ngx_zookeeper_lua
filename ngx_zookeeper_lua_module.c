@@ -924,7 +924,11 @@ ngx_zookeeper_check_completition(lua_State * L)
         return ngx_zookeeper_lua_error(L, "check_completition", "exactly one arguments expected");
     }
 
-    r = CAST(luaL_checkinteger(L, 1), result_t*);
+    if (!lua_islightuserdata(L, 1)) {
+        return ngx_zookeeper_lua_error(L, "check_completition", "argument must be a handle");
+    }
+
+    r = (result_t *) lua_touserdata(L, 1);
 
     spinlock_lock(&r->lock);
 
@@ -1014,7 +1018,6 @@ ngx_zookeeper_check_completition(lua_State * L)
         }
 
         free_result(r);
-        r = NULL;
     }
     else
     {
@@ -1029,7 +1032,18 @@ ngx_zookeeper_check_completition(lua_State * L)
 static int
 ngx_zookeeper_forgot(lua_State * L)
 {
-    result_t *r = CAST(luaL_checkinteger(L, 1), result_t*);
+    result_t *r;
+
+    if (lua_gettop(L) != 1)
+    {
+        return ngx_zookeeper_lua_error(L, "forgot", "exactly one arguments expected");
+    }
+
+    if (!lua_islightuserdata(L, 1)) {
+        return ngx_zookeeper_lua_error(L, "forgot", "argument must be a handle");
+    }
+
+    r = (result_t *) lua_touserdata(L, 1);
 
     spinlock_lock(&r->lock);
 
@@ -1225,10 +1239,9 @@ ngx_zookeeper_aget(lua_State * L)
         return ngx_zookeeper_lua_error(L, "aget", rc_str_s(rc));
     }
 
-    lua_pushinteger(L, CAST(r, lua_Integer));
-    lua_pushnil(L);
+    lua_pushlightuserdata(L, r);
 
-    return 2;
+    return 1;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -1379,10 +1392,9 @@ ngx_zookeeper_aget_childrens(lua_State * L)
         return ngx_zookeeper_lua_error(L, "aget_childrens", rc_str_s(rc));
     }
 
-    lua_pushinteger(L, CAST(r, lua_Integer));
-    lua_pushnil(L);
+    lua_pushlightuserdata(L, r);
 
-    return 2;
+    return 1;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -1454,10 +1466,9 @@ ngx_zookeeper_aset(lua_State * L)
         return ngx_zookeeper_lua_error(L, "aset", rc_str_s(rc));
     }
 
-    lua_pushinteger(L, CAST(r, lua_Integer));
-    lua_pushnil(L);
+    lua_pushlightuserdata(L, r);
 
-    return 2;
+    return 1;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -1519,10 +1530,9 @@ ngx_zookeeper_acreate(lua_State * L)
         return ngx_zookeeper_lua_error(L, "acreate", rc_str_s(rc));
     }
 
-    lua_pushinteger(L, CAST(r, lua_Integer));
-    lua_pushnil(L);
+    lua_pushlightuserdata(L, r);
 
-    return 2;
+    return 1;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -1578,8 +1588,7 @@ ngx_zookeeper_adelete(lua_State * L)
         return ngx_zookeeper_lua_error(L, "adelete", rc_str_s(rc));
     }
 
-    lua_pushinteger(L, CAST(r, lua_Integer));
-    lua_pushnil(L);
+    lua_pushlightuserdata(L, r);
 
-    return 2;
+    return 1;
 }
