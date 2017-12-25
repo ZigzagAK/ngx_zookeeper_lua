@@ -44,6 +44,7 @@ local json_encode = cjson.encode
 local zoo_cache_on = CONFIG:get("zoo.cache.on")
 local zoo_cache_ttl = CONFIG:get("zoo.cache.ttl") or 60
 local zoo_cache_path_ttl = json_decode(CONFIG:get("zoo.cache.path.ttl") or {})
+local zoo_decode_json = CONFIG:get("zoo.decode_json")
 
 table.sort(zoo_cache_path_ttl, function(l, r) return #l.path > #r.path end)
 
@@ -197,7 +198,7 @@ function _M.get(znode)
 
   ngx_log(DEBUG, "zoo get: ", znode, "=", value)
 
-  if value and value:match("^%s*{") then
+  if zoo_decode_json and value and value:match("^%s*{") then
     -- may be json
     local ok, object = pcall(json_decode, value)
     if ok then
