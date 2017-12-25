@@ -22,6 +22,7 @@ local create
 local delete
 local delete_recursive
 local childrens
+local clear_in_cache
 
 local CACHE = ngx.shared.zoo_cache
 local CONFIG = ngx.shared.config
@@ -243,6 +244,8 @@ function _M.set(znode, value, version)
     return zoo.aset(znode, value, version or -1)
   end)
 
+  clear_in_cache(znode)
+
   return data and data[2] or nil, err
 end
 
@@ -276,6 +279,8 @@ function _M.delete(znode)
     return zoo.adelete(znode)
   end)
 
+  clear_in_cache(znode)
+
   return data and true or false, err
 end
 
@@ -306,6 +311,7 @@ do
   delete           = _M.delete
   delete_recursive = _M.delete_recursive
   childrens        = _M.childrens
+  clear_in_cache   = _M.clear_in_cache
 end
 
 return _M
