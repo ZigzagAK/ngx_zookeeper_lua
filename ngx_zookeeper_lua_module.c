@@ -725,9 +725,51 @@ static int ngx_zookeeper_adelete(lua_State *L);
 static int ngx_zookeeper_check_completition(lua_State *L);
 static int ngx_zookeeper_timeout(lua_State *L);
 
+#if !defined LUA_VERSION_NUM || LUA_VERSION_NUM < 502
+
+static void
+luaL_setfuncs(lua_State *l, const luaL_Reg *reg, int nup)
+{
+    int i;
+
+    luaL_checkstack(l, nup, "too many upvalues");
+    for (; reg->name != NULL; reg++) {
+        for (i = 0; i < nup; i++) {
+            lua_pushvalue(l, -nup);
+        }
+        lua_pushcclosure(l, reg->func, nup);
+        lua_setfield(l, -(nup + 2), reg->name);
+    }
+    lua_pop(l, nup);
+}
+
+#endif
+
+static int
+destructor(lua_State *L);
+
+static void
+ngx_zookeeper_register_gc(lua_State *L)
+{
+    luaL_Reg regZoo[] =
+    {
+        { "__gc", destructor },
+        { NULL, NULL }
+    };
+
+    luaL_newmetatable(L, "ngx_zoo");
+    luaL_setfuncs(L, regZoo, 0);
+    lua_pushvalue(L, -1);
+    lua_setfield(L, -1, "__index");
+
+    lua_pop(L, 1);
+}
+
 static int
 ngx_zookeeper_lua_create_module(lua_State *L)
 {
+    ngx_zookeeper_register_gc(L);
+
     lua_createtable(L, 0, 8);
 
     lua_pushcfunction(L, ngx_zookeeper_connected);
@@ -800,7 +842,6 @@ typedef struct result_s result_t;
 
 struct datatype_s
 {
-    unsigned magic;
     result_t *r;
 };
 typedef struct datatype_s datatype_t;
@@ -814,6 +855,16 @@ unref(result_t *r, ngx_atomic_int_t n)
         }
         ngx_free(r);
     }
+}
+
+static int
+destructor(lua_State *L)
+{
+    datatype_t *data = (datatype_t *) luaL_checkudata(L, 1, "ngx_zoo");
+    if (data && data->r) {
+        unref(data->r, 1);
+    }
+    return 0;
 }
 
 static datatype_t *
@@ -833,9 +884,11 @@ new(lua_State *L)
         return NULL;
     }
 
-    data->magic = 0xdeadbeef;
     data->r = r;
     data->r->counter = 2;
+
+    luaL_getmetatable(L, "ngx_zoo");
+    lua_setmetatable(L, -2);
 
     return data;
 }
@@ -866,9 +919,9 @@ ngx_zookeeper_check_completition(lua_State *L)
         return ngx_zookeeper_lua_error(L, "check_completition", "argument must be a userdata");
     }
 
-    data = (datatype_t *) lua_touserdata(L, 1);
-    if (data->magic != 0xdeadbeef) {
-        return ngx_zookeeper_lua_error(L, "check_completition", "argument is not zookeeper type");
+    data = (datatype_t *) luaL_checkudata(L, 1, "ngx_zoo");
+    if (data == NULL) {
+        return ngx_zookeeper_lua_error(L, "check_completition", "argument is not a zookeeper type");
     }
 
     r = data->r;
@@ -1117,6 +1170,7 @@ ngx_zookeeper_aget(lua_State *L)
     }
 
     unref(data->r, 2);
+    data->r = NULL;
 
     /* pop userdata */
     lua_pop(L, 1);
@@ -1251,6 +1305,7 @@ ngx_zookeeper_aget_childrens(lua_State *L)
     }
 
     unref(data->r, 2);
+    data->r = NULL;
 
     /* pop userdata */
     lua_pop(L, 1);
@@ -1334,6 +1389,7 @@ ngx_zookeeper_aset(lua_State *L)
     }
 
     unref(data->r, 2);
+    data->r = NULL;
 
     /* pop userdata */
     lua_pop(L, 1);
@@ -1394,6 +1450,7 @@ ngx_zookeeper_acreate(lua_State *L)
     }
 
     unref(data->r, 2);
+    data->r = NULL;
 
     /* pop userdata */
     lua_pop(L, 1);
@@ -1449,6 +1506,7 @@ ngx_zookeeper_adelete(lua_State *L)
     }
 
     unref(data->r, 2);
+    data->r = NULL;
 
     /* pop userdata */
     lua_pop(L, 1);
