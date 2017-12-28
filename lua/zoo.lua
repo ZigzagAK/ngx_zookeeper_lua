@@ -132,7 +132,6 @@ local function zoo_call(fun)
       err = e
       return e
     end) then
-      zoo.forgot(sc)
       return nil, err
     end
   until completed or now() * 1000 > expires
@@ -141,7 +140,6 @@ local function zoo_call(fun)
     return not err and { value, stat } or nil, err
   end
 
-  zoo.forgot(sc)
   return nil, errors.ZOO_TIMEOUT
 end
 
