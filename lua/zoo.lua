@@ -1,6 +1,17 @@
 local zoo    = require "ngx.zookeeper"
-local system = require "system"
 local cjson  = require "cjson"
+
+local ffi = require 'ffi'
+
+local C = ffi.C
+
+ffi.cdef[[
+  int usleep(unsigned int usec);
+]]
+
+function blocking_sleep(sec)
+  return C.usleep(sec * 1000000)
+end
 
 local timeout = zoo.timeout()
 
@@ -110,7 +121,7 @@ end
 local function suspend(sec)
   if not pcall(sleep, sec) then
     ngx_log(WARN, "blocking sleep function is used")
-    system.sleep(sec)
+    blocking_sleep(sec)
   end
 end
 
