@@ -9,14 +9,14 @@ ffi.cdef[[
   int usleep(unsigned int usec);
 ]]
 
-function blocking_sleep(sec)
+local function blocking_sleep(sec)
   return C.usleep(sec * 1000000)
 end
 
 local timeout = zoo.timeout()
 
 local _M = {
-  _VERSION = "2.2.0",
+  _VERSION = "2.2.1",
 
   errors = {
     ZOO_TIMEOUT = "TIMEOUT"
@@ -57,6 +57,13 @@ local zoo_cache_on = CONFIG:get("zoo.cache.on")
 local zoo_cache_ttl = CONFIG:get("zoo.cache.ttl") or 60
 local zoo_cache_path_ttl = json_decode(CONFIG:get("zoo.cache.path.ttl") or {})
 local zoo_decode_json = CONFIG:get("zoo.decode_json")
+
+local zoo_debug = CONFIG:get("zoo.cache.debug")
+local function debug(fun)
+  if zoo_debug then
+    ngx_log(DEBUG, fun())
+  end
+end
 
 table.sort(zoo_cache_path_ttl, function(l, r) return #l.path > #r.path end)
 
@@ -174,7 +181,9 @@ local function save_in_cache(prefix, znode, v, stat)
   local ok, err = CACHE:set(prefix .. ":" .. znode, cached, zoo_cache_ttl)
 
   if ok then
-    ngx_log(DEBUG, "zoo set cached: ttl=" .. ttl .. "s," .. znode, "=", cached)
+    debug(function()
+      return "zoo set cached: ttl=", ttl, "s,", znode, "=", cached
+    end)
   else
     ngx_log(WARN, "zoo set cached: ", err)
   end
@@ -184,7 +193,9 @@ local function get_from_cache(prefix, znode)
   if zoo_cache_on then
     local cached = CACHE:get(prefix .. ":" .. znode)
     if cached then
-      ngx_log(DEBUG, "zoo get cached: ", znode, "=", cached)
+      debug(function()
+        return "zoo get cached: ", znode, "=", cached
+      end)
       return json_decode(cached)
     end
   end
@@ -206,7 +217,9 @@ function _M.get(znode)
 
   local value, stat = unpack(data)
 
-  ngx_log(DEBUG, "zoo get: ", znode, "=", value)
+  debug(function()
+    return "zoo get: ", znode, "=", value
+  end)
 
   if zoo_decode_json and value and value:match("^%s*{") then
     -- may be json
@@ -239,7 +252,9 @@ function _M.childrens(znode)
   local childs, stat = unpack(data)
 
   save_in_cache("c", znode, childs, nil)
-  ngx_log(DEBUG, "zoo get: ", znode, "=", json_encode(childs))
+  debug(function()
+    return "zoo get: ", znode, "=", json_encode(childs)
+  end)
 
   return childs or {}
 end

@@ -1,5 +1,5 @@
 local _M = {
-  _VERSION = "2.2.0"
+  _VERSION = "2.2.1"
 }
 
 local zoo = require "zoo"
@@ -9,7 +9,6 @@ local type = type
 local assert = assert
 local pairs = pairs
 local ngx_log = ngx.log
-local DEBUG = ngx.DEBUG
 
 function _M.get(znode)
   local value, stat, err = zoo.get(znode)
@@ -110,7 +109,6 @@ function _M.import(root, json)
   end
 
   local set = function(path, value)
-    ngx_log(DEBUG, "zoo import: set znode=", path, ", value=", cjson.encode(value))
     assert(zoo.set(path, value))
   end
 
