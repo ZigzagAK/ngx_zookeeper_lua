@@ -912,12 +912,13 @@ typedef struct
 static void
 dereference(datatype_t *data, ngx_atomic_int_t n)
 {
-    if (data->pool && ngx_atomic_fetch_add(&data->refs, -n) == n) {
+    if (data->pool && ngx_atomic_fetch_add(&data->refs, -n) <= n) {
 
         ngx_log_debug1(NGX_LOG_DEBUG_HTTP, ngx_cycle->log, 0,
                        "zoo: free %xd", data);
 
         ngx_destroy_pool(data->pool);
+
         data->pool = NULL;
     }
 }
@@ -926,7 +927,7 @@ dereference(datatype_t *data, ngx_atomic_int_t n)
 static int
 delete(lua_State *L)
 {
-    dereference(luaL_checkudata(L, 1, "ngx_zoo"), 1);
+    dereference(luaL_checkudata(L, 1, "ngx_zoo"), 2);
     return 0;
 }
 
