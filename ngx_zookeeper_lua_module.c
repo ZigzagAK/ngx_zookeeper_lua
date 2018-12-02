@@ -67,7 +67,8 @@ ngx_http_zookeeper_lua_register_port(ngx_conf_t *cf, ngx_command_t *cmd,
 
 typedef struct
 {
-    ngx_str_t     ip;
+    ngx_addr_t   *addrs;
+    ngx_uint_t    naddrs;
     ngx_str_t     hosts;
     ngx_int_t     recv_timeout;
     int           init_flags;
@@ -167,6 +168,7 @@ ngx_http_zookeeper_lua_create_main_conf(ngx_conf_t *cf)
 {
     ngx_http_zookeeper_lua_module_main_conf_t  *zmcf;
     ngx_url_t                                   u;
+    ngx_uint_t                                  j;
 
     zmcf = ngx_pcalloc(cf->pool,
         sizeof(ngx_http_zookeeper_lua_module_main_conf_t));
@@ -184,8 +186,12 @@ ngx_http_zookeeper_lua_create_main_conf(ngx_conf_t *cf)
     u.default_port = 1;
 
     if (ngx_parse_url(cf->pool, &u) == NGX_OK) {
-        zmcf->ip = u.addrs[0].name;
-        zmcf->ip.len -= 2;
+
+        zmcf->addrs = u.addrs;
+        zmcf->naddrs = u.naddrs;
+
+        for (j = 0; j < u.naddrs; j++)
+            zmcf->addrs[j].name.len -= 2;
     }
 
     return zmcf;
@@ -336,54 +342,57 @@ ngx_http_zookeeper_lua_register_port(ngx_conf_t *cf, ngx_command_t *cmd,
     ethemeral_node_t                           *node;
     char                                       *s;
     ngx_str_t                                  *subpath;
+    ngx_uint_t                                  j;
 
-    node = ngx_array_push(zmcf->nodes);
+    for (j = 0; j < zmcf->naddrs; j++) {
+        node = ngx_array_push(zmcf->nodes);
 
-    node->path = ngx_array_create(cf->pool, 1000, sizeof(ngx_str_t));
+        node->path = ngx_array_create(cf->pool, 1000, sizeof(ngx_str_t));
 
-    for (s = ngx_strchr(values[1].data + 1, '/');
-         s;
-         s = ngx_strchr(s + 1, '/'))
-    {
+        for (s = ngx_strchr(values[1].data + 1, '/');
+             s;
+             s = ngx_strchr(s + 1, '/'))
+        {
+            subpath = ngx_array_push(node->path);
+            subpath->len = (u_char *)s - values[1].data;
+            subpath->data = ngx_pcalloc(cf->pool, subpath->len + 1);
+            ngx_memcpy(subpath->data, values[1].data, subpath->len);
+        }
+
         subpath = ngx_array_push(node->path);
-        subpath->len = (u_char *)s - values[1].data;
-        subpath->data = ngx_pcalloc(cf->pool, subpath->len + 1);
-        ngx_memcpy(subpath->data, values[1].data, subpath->len);
-    }
+        subpath->data = values[1].data;
+        subpath->len = values[1].len;
 
-    subpath = ngx_array_push(node->path);
-    subpath->data = values[1].data;
-    subpath->len = values[1].len;
+        node->value.len = zmcf->addrs[j].name.len + values[2].len + 1;
+        node->value.data = ngx_pcalloc(cf->pool, node->value.len + 1);
+        ngx_snprintf(node->value.data, node->value.len, "%V:%s",
+                     &zmcf->addrs[j].name, values[2].data);
 
-    node->value.len = zmcf->ip.len + values[2].len + 1;
-    node->value.data = ngx_pcalloc(cf->pool, node->value.len + 1);
-    ngx_snprintf(node->value.data, node->value.len, "%V:%s",
-                 &zmcf->ip, values[2].data);
-
-    node->instance.len = values[1].len + node->value.len + 1;
-    node->instance.data = ngx_pcalloc(cf->pool, node->instance.len + 1);
-    if (node->instance.data == NULL)
-        return NULL;
-
-    ngx_snprintf(node->instance.data, node->instance.len + 1, "%s/%s",
-                 values[1].data, node->value.data);
-
-    node->epoch = 0;
-
-    if (cf->args->nelts == 4) {
-
-        node->data.len = values[3].len;
-        node->data.data = ngx_pcalloc(cf->pool, node->data.len + 1);
-
-        if (node->data.data == NULL)
+        node->instance.len = values[1].len + node->value.len + 1;
+        node->instance.data = ngx_pcalloc(cf->pool, node->instance.len + 1);
+        if (node->instance.data == NULL)
             return NULL;
 
-        ngx_memcpy(node->data.data, values[3].data, node->data.len);
+        ngx_snprintf(node->instance.data, node->instance.len + 1, "%s/%s",
+                     values[1].data, node->value.data);
 
-    } else {
+        node->epoch = 0;
 
-        node->data.data = (u_char *) "";
-        node->data.len = 0;
+        if (cf->args->nelts == 4) {
+
+            node->data.len = values[3].len;
+            node->data.data = ngx_pcalloc(cf->pool, node->data.len + 1);
+
+            if (node->data.data == NULL)
+                return NULL;
+
+            ngx_memcpy(node->data.data, values[3].data, node->data.len);
+
+        } else {
+
+            node->data.data = (u_char *) "";
+            node->data.len = 0;
+        }
     }
 
     return NGX_CONF_OK;
@@ -791,6 +800,10 @@ static int ngx_zookeeper_check_completition(lua_State *L);
 
 static int ngx_zookeeper_timeout(lua_State *L);
 
+static int ngx_zookeeper_addrs(lua_State *L);
+
+static int ngx_zookeeper_hostname(lua_State *L);
+
 
 #if !defined LUA_VERSION_NUM || LUA_VERSION_NUM < 502
 
@@ -840,7 +853,7 @@ ngx_zookeeper_lua_create_module(lua_State *L)
 {
     ngx_zookeeper_register_gc(L);
 
-    lua_createtable(L, 0, 8);
+    lua_createtable(L, 0, 10);
 
     lua_pushcfunction(L, ngx_zookeeper_connected);
     lua_setfield(L, -2, "connected");
@@ -865,6 +878,12 @@ ngx_zookeeper_lua_create_module(lua_State *L)
 
     lua_pushcfunction(L, ngx_zookeeper_timeout);
     lua_setfield(L, -2, "timeout");
+
+    lua_pushcfunction(L, ngx_zookeeper_addrs);
+    lua_setfield(L, -2, "addrs");
+
+    lua_pushcfunction(L, ngx_zookeeper_hostname);
+    lua_setfield(L, -2, "hostname");
 
     return 1;
 }
@@ -1095,13 +1114,44 @@ ngx_zookeeper_check_completition(lua_State *L)
 static int
 ngx_zookeeper_timeout(lua_State *L)
 {
-    ngx_http_zookeeper_lua_module_main_conf_t *zmcf;
+    ngx_http_zookeeper_lua_module_main_conf_t  *zmcf;
 
     zmcf = ngx_http_cycle_get_module_main_conf(ngx_cycle,
         ngx_zookeeper_lua_module);
 
     lua_pushinteger(L, zmcf->recv_timeout);
 
+    return 1;
+}
+
+
+static int
+ngx_zookeeper_addrs(lua_State *L)
+{
+    ngx_http_zookeeper_lua_module_main_conf_t  *zmcf;
+    ngx_uint_t                                  j;
+
+    zmcf = ngx_http_cycle_get_module_main_conf(ngx_cycle,
+        ngx_zookeeper_lua_module);
+
+    lua_newtable(L);
+
+    for (j = 0; j < zmcf->naddrs; j++) {
+
+        lua_pushlstring(L, (const char *) zmcf->addrs[j].name.data,
+                        zmcf->addrs[j].name.len);
+        lua_rawseti(L, -2, j + 1);
+    }
+
+    return 1;
+}
+
+
+static int
+ngx_zookeeper_hostname(lua_State *L)
+{
+    lua_pushlstring(L, (const char *) ngx_cycle->hostname.data,
+                    ngx_cycle->hostname.len);
     return 1;
 }
 
