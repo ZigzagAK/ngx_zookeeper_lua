@@ -16,7 +16,7 @@ end
 local timeout = zoo.timeout()
 
 local _M = {
-  _VERSION = "2.2.1",
+  _VERSION = "2.3.0",
 
   errors = {
     ZOO_TIMEOUT = "TIMEOUT"
@@ -253,7 +253,7 @@ function _M.childrens(znode)
 
   save_in_cache("c", znode, childs, nil)
   debug(function()
-    return "zoo get: ", znode, "=", json_encode(childs)
+    return "zoo childrens: ", znode, "=", json_encode(childs)
   end)
 
   return childs or {}
@@ -323,6 +323,49 @@ function _M.delete_recursive(znode)
   end
 
   return delete(znode)
+end
+
+function _M.tree(znode, with_stat)
+  local data, err = zoo_call(function()
+    return zoo.atree(znode)
+  end)
+
+  if not data then
+    return nil, err
+  end
+
+  local tree = unpack(data)
+
+  local function traverse(zpath, node)
+    local value, stat = node.__value, node.__stat
+
+    save_in_cache("v", zpath, value, stat)
+    node.__value, node.__stat = nil, nil
+
+    local childs = {}
+
+    for k,v in pairs(node)
+    do
+      table.insert(childs, k)
+      if traverse(zpath .. "/" .. k, v) == 0 and not with_stat then
+        node[k] = v.value
+      end
+    end
+
+    save_in_cache("c", zpath, childs, nil)
+
+    node.value, node.stat = (#value ~= 0 or #childs == 0) and value or nil, with_stat and stat or nil
+
+    return #childs
+  end
+
+  traverse(znode, tree)
+
+  debug(function()
+    return "zoo tree: ", znode, "=", json_encode(tree)
+  end)
+
+  return tree
 end
 
 function _M.connected()
