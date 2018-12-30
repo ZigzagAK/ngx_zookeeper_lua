@@ -17,10 +17,6 @@ static void *
 ngx_http_zookeeper_lua_create_main_conf(ngx_conf_t *cf);
 
 
-static char *
-ngx_http_zookeeper_lua_init_main_conf(ngx_conf_t *cf, void *conf);
-
-
 static ngx_int_t
 ngx_zookeeper_lua_init(ngx_conf_t *cf);
 
@@ -35,9 +31,6 @@ ngx_zookeeper_lua_init_worker(ngx_cycle_t *cycle);
 
 void
 ngx_zookeeper_lua_exit_worker(ngx_cycle_t *cycle);
-
-static char *
-ngx_http_zookeeper_lua_hosts(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 
 
 static char *
@@ -80,9 +73,9 @@ typedef struct
 static ngx_command_t ngx_http_zookeeper_lua_commands[] = {
     { ngx_string("zookeeper"),
       NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE1,
-      ngx_http_zookeeper_lua_hosts,
-      0,
-      0,
+      ngx_conf_set_str_slot,
+      NGX_HTTP_MAIN_CONF_OFFSET,
+      offsetof(ngx_http_zookeeper_lua_module_main_conf_t, hosts),
       NULL },
 
     { ngx_string("zookeeper_log_level"),
@@ -129,7 +122,7 @@ static ngx_http_module_t ngx_zookeeper_lua_ctx = {
     NULL,                                    /* preconfiguration */
     ngx_zookeeper_lua_init,                  /* postconfiguration */
     ngx_http_zookeeper_lua_create_main_conf, /* create main configuration */
-    ngx_http_zookeeper_lua_init_main_conf,   /* init main configuration */
+    NULL,                                    /* init main configuration */
     NULL,                                    /* create server configuration */
     NULL,                                    /* merge server configuration */
     NULL,                                    /* create location configuration */
@@ -199,30 +192,6 @@ ngx_http_zookeeper_lua_create_main_conf(ngx_conf_t *cf)
 
 
 static char *
-ngx_http_zookeeper_lua_init_main_conf(ngx_conf_t *cf, void *conf)
-{
-    return NGX_CONF_OK;
-}
-
-
-static char *
-ngx_http_zookeeper_lua_hosts(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
-{
-    ngx_http_zookeeper_lua_module_main_conf_t  *zmcf = conf;
-    ngx_str_t                                  *values = cf->args->elts;
-
-    zmcf->hosts.data = ngx_pcalloc(cf->pool, values[1].len + 1);
-    if (zmcf->hosts.data == NULL)
-        return NULL;
-
-    ngx_memcpy(zmcf->hosts.data, values[1].data, values[1].len);
-    zmcf->hosts.len = values[1].len;
-
-    return NGX_CONF_OK;
-}
-
-
-static char *
 ngx_http_zookeeper_lua_log_level(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
     ngx_http_zookeeper_lua_module_main_conf_t *zmcf = conf;
@@ -236,8 +205,11 @@ ngx_http_zookeeper_lua_log_level(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         zmcf->log_level = ZOO_LOG_LEVEL_INFO;
     else if (ngx_strncasecmp((u_char*) "debug", values[1].data, 5) == 0)
         zmcf->log_level = ZOO_LOG_LEVEL_DEBUG;
-    else
-        return "invalid zookeeper_log_level value (error, warn, info, debug)";
+    else {
+        ngx_log_error(NGX_LOG_ERR, cf->log, 0,
+            "invalid zookeeper_log_level value (error, warn, info, debug)");
+        return NGX_CONF_ERROR;
+    }
 
     zoo_set_debug_level(zmcf->log_level);
 
@@ -256,8 +228,11 @@ ngx_http_zookeeper_lua_recv_timeout(ngx_conf_t *cf, ngx_command_t *cmd,
 
     if (zmcf->recv_timeout == (ngx_int_t) NGX_ERROR
         || zmcf->recv_timeout < 1
-        || zmcf->recv_timeout > 60000)
-        return "invalid value (1-60000 milliseconds)";
+        || zmcf->recv_timeout > 60000) {
+        ngx_log_error(NGX_LOG_ERR, cf->log, 0,
+            "invalid value (1-60000 milliseconds)");
+        return NGX_CONF_ERROR;
+    }
 
     return NGX_CONF_OK;
 }
