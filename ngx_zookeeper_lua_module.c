@@ -8,6 +8,7 @@
 
 
 #include "ngx_http_lua_api.h"
+#include "ngx_zookeeper_lua.h"
 
 
 ngx_module_t ngx_zookeeper_lua_module;
@@ -391,6 +392,27 @@ static zookeeper_t zoo = {
     .expired   = 1,
     .epoch     = 1
 };
+
+
+ngx_flag_t
+ngx_zookeeper_lua_connected()
+{
+    return zoo.connected;
+}
+
+
+int
+ngx_zookeeper_lua_epoch()
+{
+    return zoo.epoch;
+}
+
+
+void *
+ngx_zookeeper_lua_handle()
+{
+    return zoo.handle;
+}
 
 
 ngx_int_t
