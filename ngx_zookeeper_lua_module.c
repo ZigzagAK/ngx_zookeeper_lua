@@ -40,11 +40,6 @@ ngx_http_zookeeper_lua_log_level(ngx_conf_t *cf, ngx_command_t *cmd,
 
 
 static char *
-ngx_http_zookeeper_lua_recv_timeout(ngx_conf_t *cf, ngx_command_t *cmd,
-    void *conf);
-
-
-static char *
 ngx_http_zookeeper_lua_read_only(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
 
@@ -57,6 +52,12 @@ ngx_http_zookeeper_lua_ethemeral_node(ngx_conf_t *cf, ngx_command_t *cmd,
 static char *
 ngx_http_zookeeper_lua_register_port(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
+
+
+static ngx_conf_num_bounds_t  ngx_http_zookeeper_check_timeout = {
+    ngx_conf_check_num_bounds,
+    1, 60000
+};
 
 
 typedef struct
@@ -88,10 +89,10 @@ static ngx_command_t ngx_http_zookeeper_lua_commands[] = {
 
     { ngx_string("zookeeper_recv_timeout"),
       NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE1,
-      ngx_http_zookeeper_lua_recv_timeout,
-      0,
-      0,
-      NULL },
+      ngx_conf_set_num_slot,
+      NGX_HTTP_MAIN_CONF_OFFSET,
+      offsetof(ngx_http_zookeeper_lua_module_main_conf_t, recv_timeout),
+      &ngx_http_zookeeper_check_timeout },
 
     { ngx_string("zookeeper_ethemeral_node"),
       NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|
@@ -149,10 +150,10 @@ ngx_module_t ngx_zookeeper_lua_module = {
 
 struct ethemeral_node_s {
     ngx_array_t *path;
-    ngx_str_t value;
-    ngx_str_t instance;
-    ngx_str_t data;
-    int epoch;
+    ngx_str_t    value;
+    ngx_str_t    instance;
+    ngx_str_t    data;
+    int          epoch;
 };
 typedef struct ethemeral_node_s ethemeral_node_t;
 
@@ -170,9 +171,11 @@ ngx_http_zookeeper_lua_create_main_conf(ngx_conf_t *cf)
         return NULL;
 
     zmcf->log_level = ZOO_LOG_LEVEL_ERROR;
-    zmcf->recv_timeout = 10000;
+    zmcf->recv_timeout = NGX_CONF_UNSET;
     zmcf->init_flags = 0;
     zmcf->nodes = ngx_array_create(cf->pool, 1000, sizeof(ethemeral_node_t));
+    if (zmcf->nodes == NULL)
+        return NULL;
 
     ngx_memzero(&u, sizeof(ngx_url_t));
 
@@ -192,48 +195,47 @@ ngx_http_zookeeper_lua_create_main_conf(ngx_conf_t *cf)
 }
 
 
+static ngx_flag_t
+str_eq(ngx_str_t s1, ngx_str_t s2)
+{
+    return ngx_memn2cmp(s1.data, s2.data, s1.len, s2.len) == 0;
+}
+
+
 static char *
 ngx_http_zookeeper_lua_log_level(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
     ngx_http_zookeeper_lua_module_main_conf_t *zmcf = conf;
-    ngx_str_t *values = cf->args->elts;
+    ngx_str_t                                  log_level;
 
-    if (ngx_strncasecmp((u_char*) "error", values[1].data, 5) == 0)
+    static const ngx_str_t LOG_ERR   = ngx_string("error");
+    static const ngx_str_t LOG_INFO  = ngx_string("warn");
+    static const ngx_str_t LOG_WARN  = ngx_string("info");
+    static const ngx_str_t LOG_DEBUG = ngx_string("debug");
+
+    log_level = ((ngx_str_t *) cf->args->elts)[1];
+    ngx_strlow(log_level.data, log_level.data, log_level.len);
+
+    if (str_eq(LOG_ERR, log_level))
+
         zmcf->log_level = ZOO_LOG_LEVEL_ERROR;
-    else if (ngx_strncasecmp((u_char*) "warn", values[1].data, 4) == 0)
+    else if (str_eq(LOG_WARN, log_level))
+
         zmcf->log_level = ZOO_LOG_LEVEL_WARN;
-    else if (ngx_strncasecmp((u_char*) "info", values[1].data, 4) == 0)
+    else if (str_eq(LOG_INFO, log_level))
+
         zmcf->log_level = ZOO_LOG_LEVEL_INFO;
-    else if (ngx_strncasecmp((u_char*) "debug", values[1].data, 5) == 0)
+    else if (str_eq(LOG_DEBUG, log_level))
+
         zmcf->log_level = ZOO_LOG_LEVEL_DEBUG;
     else {
+
         ngx_log_error(NGX_LOG_ERR, cf->log, 0,
             "invalid zookeeper_log_level value (error, warn, info, debug)");
         return NGX_CONF_ERROR;
     }
 
     zoo_set_debug_level(zmcf->log_level);
-
-    return NGX_CONF_OK;
-}
-
-
-static char *
-ngx_http_zookeeper_lua_recv_timeout(ngx_conf_t *cf, ngx_command_t *cmd,
-    void *conf)
-{
-    ngx_http_zookeeper_lua_module_main_conf_t *zmcf = conf;
-    ngx_str_t *values = cf->args->elts;
-
-    zmcf->recv_timeout = ngx_atoi(values[1].data, values[1].len);
-
-    if (zmcf->recv_timeout == (ngx_int_t) NGX_ERROR
-        || zmcf->recv_timeout < 1
-        || zmcf->recv_timeout > 60000) {
-        ngx_log_error(NGX_LOG_ERR, cf->log, 0,
-            "invalid value (1-60000 milliseconds)");
-        return NGX_CONF_ERROR;
-    }
 
     return NGX_CONF_OK;
 }
@@ -301,8 +303,7 @@ ngx_http_zookeeper_lua_ethemeral_node(ngx_conf_t *cf, ngx_command_t *cmd,
 
     } else {
 
-        node->data.data = (u_char *) "";
-        node->data.len = 0;
+        ngx_str_set(&node->data, "");
     }
 
     return NGX_CONF_OK;
@@ -321,6 +322,7 @@ ngx_http_zookeeper_lua_register_port(ngx_conf_t *cf, ngx_command_t *cmd,
     ngx_uint_t                                  j;
 
     for (j = 0; j < zmcf->naddrs; j++) {
+
         node = ngx_array_push(zmcf->nodes);
 
         node->path = ngx_array_create(cf->pool, 1000, sizeof(ngx_str_t));
@@ -330,7 +332,7 @@ ngx_http_zookeeper_lua_register_port(ngx_conf_t *cf, ngx_command_t *cmd,
              s = ngx_strchr(s + 1, '/'))
         {
             subpath = ngx_array_push(node->path);
-            subpath->len = (u_char *)s - values[1].data;
+            subpath->len = (u_char *) s - values[1].data;
             subpath->data = ngx_pcalloc(cf->pool, subpath->len + 1);
             ngx_memcpy(subpath->data, values[1].data, subpath->len);
         }
@@ -347,7 +349,7 @@ ngx_http_zookeeper_lua_register_port(ngx_conf_t *cf, ngx_command_t *cmd,
         node->instance.len = values[1].len + node->value.len + 1;
         node->instance.data = ngx_pcalloc(cf->pool, node->instance.len + 1);
         if (node->instance.data == NULL)
-            return NULL;
+            return NGX_CONF_ERROR;
 
         ngx_snprintf(node->instance.data, node->instance.len + 1, "%s/%s",
                      values[1].data, node->value.data);
@@ -360,14 +362,13 @@ ngx_http_zookeeper_lua_register_port(ngx_conf_t *cf, ngx_command_t *cmd,
             node->data.data = ngx_pcalloc(cf->pool, node->data.len + 1);
 
             if (node->data.data == NULL)
-                return NULL;
+                return NGX_CONF_ERROR;
 
             ngx_memcpy(node->data.data, values[3].data, node->data.len);
 
         } else {
 
-            node->data.data = (u_char *) "";
-            node->data.len = 0;
+            ngx_str_set(&node->data, "");
         }
     }
 
@@ -418,10 +419,16 @@ ngx_zookeeper_lua_handle()
 ngx_int_t
 ngx_zookeeper_lua_init(ngx_conf_t *cf)
 {
+    ngx_http_zookeeper_lua_module_main_conf_t  *zmcf;
+
     if (ngx_http_lua_add_package_preload(cf, "ngx.zookeeper",
                                          ngx_zookeeper_lua_create_module)
         != NGX_OK)
         return NGX_ERROR;
+
+    zmcf = ngx_http_conf_get_module_main_conf(cf, ngx_zookeeper_lua_module);
+
+    ngx_conf_init_value(zmcf->recv_timeout, 10000);
 
     return NGX_OK;
 }
@@ -430,7 +437,7 @@ ngx_zookeeper_lua_init(ngx_conf_t *cf)
 static void
 ngx_log_message(const char *s)
 {
-    ngx_log_debug0(NGX_LOG_DEBUG_HTTP, ngx_cycle->log, 0, s);
+    ngx_log_error(NGX_LOG_DEBUG, ngx_cycle->log, 0, s);
 }
 
 
@@ -472,7 +479,7 @@ ngx_zerr(int rc)
     if (rc == ZCONNECTIONLOSS)
         return "Connection to the server has been lost";
     if (rc == ZMARSHALLINGERROR)
-        return "Error while marshalling or unmarshalling data ";
+        return "Error while marshalling or unmarshalling data";
     if (rc == ZUNIMPLEMENTED)
         return "Operation not implemented";
     if (rc == ZOPERATIONTIMEOUT)
@@ -509,7 +516,8 @@ ngx_zerr(int rc)
         return "No response from server";
     if (rc == ZSESSIONMOVED)
         return "Session moved to a different server";
-    return "UNKNOWN_EVENT_TYPE";
+
+    return "Unknown";
 }
 
 
@@ -519,12 +527,16 @@ ngx_zookeeper_register_ready(int rc, const char *value, const void *data)
     ethemeral_node_t *node = (ethemeral_node_t *) data;
 
     if (rc != ZOK) {
+
         if (rc != ZNODEEXISTS) {
+
             if (data) {
+
                 ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
                               "Zookeeper can't register ephemeral node %s : %s",
                               node->instance.data, ngx_zerr(rc));
             } else {
+
                 ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
                               "Zookeeper can't create node : %s", ngx_zerr(rc));
             }
@@ -533,6 +545,7 @@ ngx_zookeeper_register_ready(int rc, const char *value, const void *data)
     }
 
     if (data) {
+
         ngx_log_error(NGX_LOG_INFO, ngx_cycle->log, 0,
                       "Nginx has been registered, instance: %s",
                       node->instance.data);
@@ -563,7 +576,7 @@ ngx_zookeeper_register_callback(ngx_event_t *ev)
 
     zmcf = ngx_http_cycle_get_module_main_conf(ngx_cycle,
                                                ngx_zookeeper_lua_module);
-    nodes = (ethemeral_node_t *)zmcf->nodes->elts;
+    nodes = (ethemeral_node_t *) zmcf->nodes->elts;
 
     if (zoo.expired) {
 
@@ -937,9 +950,6 @@ dereference(datatype_t *data, ngx_atomic_int_t n)
 {
     if (data->pool && ngx_atomic_fetch_add(&data->refs, -n) <= n) {
 
-        ngx_log_debug1(NGX_LOG_DEBUG_HTTP, ngx_cycle->log, 0,
-                       "zoo: free %xd", data);
-
         ngx_destroy_pool(data->pool);
 
         data->pool = NULL;
@@ -964,9 +974,6 @@ new(lua_State *L)
     data = (datatype_t *) lua_newuserdata(L, sizeof(datatype_t));
     if (data == NULL)
         return NULL;
-
-    ngx_log_debug1(NGX_LOG_DEBUG_HTTP, ngx_cycle->log, 0,
-                   "zoo: new %xd", data);
 
     ngx_memzero(data, sizeof(datatype_t));
 
