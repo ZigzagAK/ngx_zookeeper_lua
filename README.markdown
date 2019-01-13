@@ -25,11 +25,12 @@ Table of Contents
   * [create](#create)
   * [delete](#delete)
   * [delete_recursive](#delete_recursive)
+  * [tree](#tree)
   * [watch](#watch)
   * [unwatch](#unwatch)
 * [Additional API](#additional-api)
-  * [tree](#tree)
-  * [import](#import)
+  * [api.tree](#api-tree)
+  * [api.import](#api-import)
 
 Status
 ======
@@ -417,6 +418,14 @@ Returns true on success, or false and a string describing an error otherwise.
 
 [Back to TOC](#table-of-contents)
 
+tree
+----
+**syntax:** `data, err = zoo.tree(znode, need_stat)`
+
+**context:** *&#42;_by_lua&#42;*
+
+Returns subtree of znode, or false and a string describing an error otherwise
+
 watch
 ----------------
 **syntax:** `data, err = zoo.watch(znode, watch_type, callback, ctx)`
@@ -454,16 +463,16 @@ Additional API
 
 `local api = require "zoo.api"`
 
-tree
-----
+api tree
+--------
 **syntax:** `r = api.tree(znode, need_stat)`
 
 **context:** *&#42;_by_lua&#42;*
 
 Returns subtree of znode, or false and a string describing an error otherwise
 
-import
-------
+api import
+----------
 **syntax:** `r = api.import(root, json)`
 
 **context:** *&#42;_by_lua&#42;*
