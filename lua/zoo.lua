@@ -87,6 +87,7 @@ local zoo_cache_on = CONFIG:get("zoo.cache.on")
 local zoo_cache_ttl = CONFIG:get("zoo.cache.ttl") or 60
 local zoo_cache_path_ttl = json_decode(CONFIG:get("zoo.cache.path.ttl") or {})
 local zoo_decode_json = CONFIG:get("zoo.decode_json")
+local zoo_watch_interval = CONFIG:get("zoo.watch.interval") or 1
 
 local zoo_debug = CONFIG:get("zoo.cache.debug")
 local function debug(fun)
@@ -319,7 +320,7 @@ function _M.create_path(znode)
   for p in znode:gmatch("/([^/]+)")
   do
     local ok, err = create(path .. p)
-    if not ok and err ~= "Znode already exists" then
+    if not ok and err ~= errors.ZOO_NODEEXISTS then
       return nil, err
     end
     path = path .. p .. "/"
@@ -504,10 +505,10 @@ function _M.watch(znode, watch_type, callback, ctx)
 
 :: settimer ::
 
-    job = assert(ngx.timer.at(1, handler))
+    job = assert(ngx.timer.at(zoo_watch_interval, handler))
   end
 
-  job = assert(ngx.timer.at(1, handler))
+  job = assert(ngx.timer.at(zoo_watch_interval, handler))
   return result
 end
 
