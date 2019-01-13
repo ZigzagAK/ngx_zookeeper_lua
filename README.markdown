@@ -25,6 +25,8 @@ Table of Contents
   * [create](#create)
   * [delete](#delete)
   * [delete_recursive](#delete_recursive)
+  * [watch](#watch)
+  * [unwatch](#unwatch)
 * [Additional API](#additional-api)
   * [tree](#tree)
   * [import](#import)
@@ -77,6 +79,86 @@ http {
     ngx.shared.config:set("zoo.cache.path.ttl", '[' ..
       '{ "path" : "/services/.*", "ttl" : 0 }' ..
    ']')
+  }
+
+  init_worker_by_lua_block {
+    assert(ngx.timer.at(1, function()
+      local zoo = require "zoo"
+      local cjson = require "cjson"
+
+      zoo.delete_recursive("/watched1")
+      zoo.delete_recursive("/watched2")
+
+      zoo.create("/watched1")
+      zoo.create("/watched2")
+
+      local function on_event(ctx)
+        local data = assert(zoo.watch(ctx.path, ctx.watcher_type, on_event, ctx))
+        ngx.log(ngx.INFO, "on_event: ", ctx.path, "=", cjson.encode(data))
+      end
+
+      on_event {
+        watcher_type = zoo.WatcherType.DATA,
+        path = "/watched1"
+      }
+
+      on_event {
+        watcher_type = zoo.WatcherType.DATA,
+        path = "/watched2"
+      }
+
+      on_event {
+        watcher_type = zoo.WatcherType.CHILDREN,
+        path = "/watched1"
+      }
+
+      on_event {
+        watcher_type = zoo.WatcherType.CHILDREN,
+        path = "/watched2"
+      }
+
+      local stop
+
+      assert(ngx.timer.at(60, function()
+        assert(zoo.unwatch("/watched1", zoo.WatcherType.DATA))
+        assert(zoo.unwatch("/watched1", zoo.WatcherType.CHILDREN))
+        assert(zoo.unwatch("/watched2", zoo.WatcherType.DATA))
+        assert(zoo.unwatch("/watched2", zoo.WatcherType.CHILDREN))
+        ngx.log(ngx.INFO, "unwatch")
+        stop = ngx.now() + 10
+      end))
+
+      local i = 0
+
+      local function change(premature)
+        if premature or (stop and stop < ngx.now()) then
+          return
+        end
+
+        pcall(function()
+          if zoo.connected() then
+            i = i + 1
+
+            assert(zoo.set("/watched1", i))
+            assert(zoo.set("/watched2", i))
+
+            if i % 2 == 1 then
+              assert(zoo.create("/watched1/1"))
+              assert(zoo.create("/watched2/1"))
+            else
+              assert(zoo.delete("/watched1/1"))
+              assert(zoo.delete("/watched2/1"))
+            end
+
+            ngx.log(ngx.INFO, "update")
+          end
+        end)
+
+        assert(ngx.timer.at(1, change))
+      end
+
+      assert(ngx.timer.at(1, change))
+    end))
   }
 
   server {
@@ -332,6 +414,38 @@ delete_recursive
 Delete the `znode` with all childs.
 
 Returns true on success, or false and a string describing an error otherwise.
+
+[Back to TOC](#table-of-contents)
+
+watch
+----------------
+**syntax:** `data, err = zoo.watch(znode, watch_type, callback, ctx)`
+
+**context:** *&#42;_by_lua&#42;*
+
+Get value or childrens and setup wather for `znode`.  
+
+watcher_type MUST be one of `zoo.WatcherType.CHILDREN, zoo.WatcherType.DATA`.  
+
+Returns value/childrens on success, or nil and a string describing an error otherwise.  
+
+See [Synopsis](#synopsis) for details.
+
+[Back to TOC](#table-of-contents)
+
+unwatch
+----------------
+**syntax:** `data, err = zoo.unwatch(znode, watch_type)`
+
+**context:** *&#42;_by_lua&#42;*
+
+Remove watcher for `znode`.
+
+watcher_type MUST be one of `zoo.WatcherType.CHILDREN, zoo.WatcherType.DATA`.  
+
+Returns true on success, or nil and a string describing an error otherwise.  
+
+See [Synopsis](#synopsis) for details.
 
 [Back to TOC](#table-of-contents)
 

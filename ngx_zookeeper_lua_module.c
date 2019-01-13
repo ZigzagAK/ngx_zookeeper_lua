@@ -70,6 +70,12 @@ typedef struct
 } zookeeper_t;
 
 
+typedef struct {
+    ngx_str_t   path;
+    int         watch_type;
+    ngx_flag_t  changed;
+} watched_t;
+
 typedef struct
 {
     ngx_addr_t   *addrs;
@@ -83,10 +89,12 @@ typedef struct
     zookeeper_t   zoo;
     ngx_event_t   ev;
     ngx_array_t  *watched;
+    ngx_atomic_t  lock;
 } ngx_http_zookeeper_lua_main_conf_t;
 
 
 static ngx_command_t ngx_http_zookeeper_lua_commands[] = {
+
     { ngx_string("zookeeper"),
       NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE1,
       ngx_conf_set_str_slot,
@@ -220,7 +228,7 @@ ngx_http_zookeeper_lua_create_main_conf(ngx_conf_t *cf)
     c->fd = -1;
     zmcf->ev.data = c;
 
-    zmcf->watched = ngx_array_create(cf->pool, 1000, sizeof(ngx_str_t));
+    zmcf->watched = ngx_array_create(cf->pool, 1000, sizeof(watched_t));
     if (zmcf->watched == NULL)
         return NULL;
 
@@ -841,6 +849,11 @@ static int ngx_zookeeper_addrs(lua_State *L);
 
 static int ngx_zookeeper_hostname(lua_State *L);
 
+static int ngx_zookeeper_awatch(lua_State *L);
+
+static int ngx_zookeeper_aunwatch(lua_State *L);
+
+static int ngx_zookeeper_changed(lua_State *L);
 
 #if !defined LUA_VERSION_NUM || LUA_VERSION_NUM < 502
 
@@ -892,7 +905,7 @@ ngx_zookeeper_lua_create_module(lua_State *L)
 {
     ngx_zookeeper_register_gc(L);
 
-    lua_createtable(L, 0, 11);
+    lua_newtable(L);
 
     lua_pushcfunction(L, ngx_zookeeper_connected);
     lua_setfield(L, -2, "connected");
@@ -926,6 +939,15 @@ ngx_zookeeper_lua_create_module(lua_State *L)
 
     lua_pushcfunction(L, ngx_zookeeper_hostname);
     lua_setfield(L, -2, "hostname");
+
+    lua_pushcfunction(L, ngx_zookeeper_awatch);
+    lua_setfield(L, -2, "awatch");
+
+    lua_pushcfunction(L, ngx_zookeeper_aunwatch);
+    lua_setfield(L, -2, "aunwatch");
+
+    lua_pushcfunction(L, ngx_zookeeper_changed);
+    lua_setfield(L, -2, "changed");
 
     return 1;
 }
@@ -1114,7 +1136,7 @@ ngx_zookeeper_check_completition(lua_State *L)
                                        "zookeeper handle is nil");
     }
 
-    if (zoo->connected) {
+    if (!zoo->connected) {
 
         ngx_rwlock_unlock(&data->lock);
 
@@ -1948,4 +1970,368 @@ ngx_zookeeper_atree(lua_State *L)
     lua_pop(L, 1);
 
     return ngx_zookeeper_lua_error(L, "atree", ngx_zerr(rc));
+}
+
+
+static void
+ngx_zookeeper_watch(zhandle_t *zh, int type,
+    int state, const char *path, void *p)
+{
+    watched_t  *w = p;
+
+    if (type == ZOO_CHILD_EVENT
+        || type == ZOO_CHANGED_EVENT
+        || type == ZOO_DELETED_EVENT)
+        w->changed = 1;
+}
+
+
+typedef struct {
+    datatype_t  *data;
+    watched_t   *w;
+} watch_ready_context_t;
+
+
+static void
+ngx_zookeeper_awatch_free_slot(watched_t *w)
+{
+    ngx_free(w->path.data);
+    ngx_str_null(&w->path);
+    w->changed = 0;
+    w->watch_type = 0;
+}
+
+
+static void 
+ngx_zookeeper_watch_ready(int rc, watch_ready_context_t *ctx)
+{
+    ngx_http_zookeeper_lua_main_conf_t  *zmcf;
+
+    if (rc == ZOK)
+        return;
+
+    zmcf = ngx_http_cycle_get_module_main_conf(ngx_cycle,
+                                               ngx_zookeeper_lua_module);
+
+    ngx_rwlock_wlock(&zmcf->lock);
+
+    ngx_zookeeper_awatch_free_slot(ctx->w);
+
+    ngx_rwlock_unlock(&zmcf->lock);
+}
+
+
+static void
+ngx_zookeeper_watch_data_ready(int rc, const char *value, int value_len,
+    const struct Stat *stat, const void *ctxp)
+{
+    watch_ready_context_t  *ctx = (watch_ready_context_t *) ctxp;
+
+    ngx_zookeeper_watch_ready(rc, ctx);
+
+    return ngx_zookeeper_get_ready(rc, value, value_len, stat, ctx->data);
+}
+
+
+static void
+ngx_zookeeper_watch_children_ready(int rc, const struct String_vector *strings,
+    const void *ctxp)
+{
+    watch_ready_context_t  *ctx = (watch_ready_context_t *) ctxp;
+
+    ngx_zookeeper_watch_ready(rc, ctx);
+
+    return ngx_zookeeper_get_childrens_ready(rc, strings, ctx->data);
+}
+
+
+static watched_t *
+ngx_zookeeper_awatch_exists(str_t path, int watch_type)
+{
+    ngx_http_zookeeper_lua_main_conf_t  *zmcf;
+    watched_t                           *w;
+    ngx_uint_t                           j;
+    ngx_str_t                            s = { path.len, (u_char *) path.data };
+
+    zmcf = ngx_http_cycle_get_module_main_conf(ngx_cycle,
+                                               ngx_zookeeper_lua_module);
+
+    w = zmcf->watched->elts;
+
+    for (j = 0; j < zmcf->watched->nelts; j++)
+        if (str_eq(s, w[j].path) && w[j].watch_type == watch_type)
+            return w + j;
+ 
+    return NULL;
+}
+
+
+static watched_t *
+ngx_zookeeper_awatch_slot()
+{
+    ngx_http_zookeeper_lua_main_conf_t  *zmcf;
+    watched_t                           *w;
+    ngx_uint_t                           j;
+
+    zmcf = ngx_http_cycle_get_module_main_conf(ngx_cycle,
+                                               ngx_zookeeper_lua_module);
+
+    w = zmcf->watched->elts;
+
+    for (j = 0; j < zmcf->watched->nelts; j++)
+        if (w[j].path.data == NULL)
+            return w + j;
+ 
+    return ngx_array_push(zmcf->watched);
+}
+
+
+static int
+ngx_zookeeper_awatch(lua_State *L)
+{
+    int                                  rc;
+    datatype_t                          *data = NULL;
+    str_t                                path;
+    ngx_http_zookeeper_lua_main_conf_t  *zmcf;
+    watched_t                           *w;
+    watch_ready_context_t               *ctx;
+    int                                  watch_type;
+
+    zmcf = ngx_http_cycle_get_module_main_conf(ngx_cycle,
+                                               ngx_zookeeper_lua_module);
+
+    if (zmcf->zoo.handle == NULL)
+        return ngx_zookeeper_lua_error(L, "awatch", "zookeeper handle is nil");
+
+    if (!zmcf->zoo.connected)
+        return ngx_zookeeper_lua_error(L, "awatch", "not connected");
+
+    if (lua_gettop(L) != 2)
+        return ngx_zookeeper_lua_error(L, "awatch", "2 arguments expected");
+
+    watch_type = luaL_checkinteger(L, 2);
+
+    if (watch_type != ZWATCHERTYPE_CHILDREN && watch_type != ZWATCHERTYPE_DATA)
+        return ngx_zookeeper_lua_error(L, "awatch", "invalid watch type");
+
+    ngx_rwlock_wlock(&zmcf->lock);
+
+    path.data = (char *) luaL_checklstring(L, 1, &path.len);
+
+    if (ngx_zookeeper_awatch_exists(path, watch_type)) {
+
+        ngx_rwlock_unlock(&zmcf->lock);
+        return ngx_zookeeper_lua_error(L, "awatch", "exists");
+    }
+
+    data = new(L);
+    if (data == NULL)
+        goto nomem;
+
+    ctx = ngx_pcalloc(data->pool, sizeof(watch_ready_context_t));
+    if (ctx == NULL)
+        goto nomem;
+
+    w = ngx_zookeeper_awatch_slot();
+    if (w == NULL)
+        goto nomem;
+
+    ctx->w = w;
+    ctx->data = data;
+
+    w->path.len = path.len;
+    w->path.data = ngx_calloc(path.len + 1, ngx_cycle->log);
+    if (w->path.data == NULL)
+        goto nomem;
+    ngx_memcpy(w->path.data, path.data, path.len);
+    w->watch_type = watch_type;
+
+    if (watch_type == ZWATCHERTYPE_DATA) {
+
+        data->completition_fn = ngx_zookeeper_get_completition;
+        rc = zoo_awget(zmcf->zoo.handle, path.data,
+            ngx_zookeeper_watch, w, ngx_zookeeper_watch_data_ready, ctx);
+
+    } else {
+
+        data->completition_fn = ngx_zookeeper_get_childrens_completition;
+        rc = zoo_awget_children(zmcf->zoo.handle, path.data,
+            ngx_zookeeper_watch, w,
+            ngx_zookeeper_watch_children_ready, ctx);
+
+    }
+
+    if (rc == ZOK) {
+
+        ngx_rwlock_unlock(&zmcf->lock);
+        return 1;
+    }
+
+    ngx_zookeeper_awatch_free_slot(w);
+
+    ngx_rwlock_unlock(&zmcf->lock);
+
+    dereference(data, 2);
+
+    /* pop userdata */
+    lua_pop(L, 1);
+
+    return ngx_zookeeper_lua_error(L, "awatch", ngx_zerr(rc));
+
+nomem:
+
+    ngx_rwlock_unlock(&zmcf->lock);
+
+    if (data != NULL) {
+
+        dereference(data, 2);
+
+        /* pop userdata */
+        lua_pop(L, 1);
+    }
+
+    return ngx_zookeeper_lua_error(L, "awatch", "no memory");
+}
+
+
+static void
+ngx_zookeeper_unwatch_ready(int rc, const void *p)
+{
+    datatype_t  *data = (datatype_t *) p;
+
+    if (data == NULL)
+        return;
+
+    ngx_rwlock_wlock(&data->lock);
+
+    if (rc != ZOK && rc != ZUNIMPLEMENTED)
+        data->error = ngx_zerr(rc);
+
+    data->completed = 1;
+
+    ngx_rwlock_unlock(&data->lock);
+
+    dereference(data, 1);
+}
+
+
+static int
+ngx_zookeeper_aunwatch(lua_State *L)
+{
+    int                                  rc;
+    datatype_t                          *data;
+    str_t                                path;
+    ngx_http_zookeeper_lua_main_conf_t  *zmcf;
+    watched_t                           *w;
+    int                                  watch_type;
+
+    zmcf = ngx_http_cycle_get_module_main_conf(ngx_cycle,
+                                               ngx_zookeeper_lua_module);
+
+    if (zmcf->zoo.handle == NULL)
+        return ngx_zookeeper_lua_error(L, "aunwatch",
+                                       "zookeeper handle is nil");
+
+    if (!zmcf->zoo.connected)
+        return ngx_zookeeper_lua_error(L, "aunwatch", "not connected");
+
+    if (lua_gettop(L) != 2)
+        return ngx_zookeeper_lua_error(L, "aunwatch",
+                                       "2 arguments expected");
+
+    watch_type = luaL_checkinteger(L, 2);
+
+    if (watch_type != ZWATCHERTYPE_CHILDREN && watch_type != ZWATCHERTYPE_DATA)
+        return ngx_zookeeper_lua_error(L, "aunwatch", "invalid watch type");
+
+    ngx_rwlock_wlock(&zmcf->lock);
+
+    path.data = (char *) luaL_checklstring(L, 1, &path.len);
+
+    w = ngx_zookeeper_awatch_exists(path, watch_type);
+    if (w == NULL) {
+
+        ngx_rwlock_unlock(&zmcf->lock);
+        return ngx_zookeeper_lua_error(L, "aunwatch", "not exists");
+    }
+
+    data = new(L);
+    if (data == NULL) {
+
+        ngx_rwlock_unlock(&zmcf->lock);
+        return ngx_zookeeper_lua_error(L, "aunwatch", "no memory");
+    }
+
+    data->completition_fn = ngx_zookeeper_void_completition;
+
+    rc = zoo_aremove_watchers(zmcf->zoo.handle, path.data, watch_type,
+        ngx_zookeeper_watch, w, 0,
+        (void_completion_t *) ngx_zookeeper_unwatch_ready, data);
+
+    if (rc == ZOK || rc == ZNOWATCHER) {
+
+        ngx_zookeeper_awatch_free_slot(w);
+
+        if (rc == ZNOWATCHER) {
+
+            dereference(data, 1);
+            data->completed = 1;
+        }
+
+        ngx_rwlock_unlock(&zmcf->lock);
+        return 1;
+    }
+
+    ngx_rwlock_unlock(&zmcf->lock);
+
+    dereference(data, 2);
+
+    /* pop userdata */
+    lua_pop(L, 1);
+
+    return ngx_zookeeper_lua_error(L, "aunwatch", ngx_zerr(rc));
+}
+
+
+static int
+ngx_zookeeper_changed(lua_State *L)
+{
+    ngx_http_zookeeper_lua_main_conf_t  *zmcf;
+    watched_t                           *w;
+    ngx_uint_t                           j;
+    int                                  i = 1;
+
+    zmcf = ngx_http_cycle_get_module_main_conf(ngx_cycle,
+                                               ngx_zookeeper_lua_module);
+
+    if (lua_gettop(L))
+        return ngx_zookeeper_lua_error(L, "changed", "no arguments expected");
+
+    w = zmcf->watched->elts;
+
+    lua_newtable(L);
+
+    ngx_rwlock_wlock(&zmcf->lock);
+
+    for (j = 0; j < zmcf->watched->nelts; j++) {
+
+        if (!w[j].changed)
+            continue;
+
+        lua_newtable(L);
+
+        lua_pushlstring(L, (char *) w[j].path.data, w[j].path.len);
+        lua_rawseti(L, -2, 1);
+
+        lua_pushinteger(L, w[j].watch_type);
+        lua_rawseti(L, -2, 2);
+
+        lua_rawseti(L, -2, i++);
+
+        ngx_zookeeper_awatch_free_slot(w + j);
+    }
+
+    ngx_rwlock_unlock(&zmcf->lock);
+
+    return 1;
 }

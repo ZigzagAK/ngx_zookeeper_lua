@@ -16,10 +16,38 @@ end
 local timeout = zoo.timeout()
 
 local _M = {
-  _VERSION = "2.3.0",
+  _VERSION = "2.4.0",
 
   errors = {
-    ZOO_TIMEOUT = "TIMEOUT"
+    ZOO_OK = "OK",
+    ZOO_SYSTEMERROR = "System error",
+    ZOO_RUNTIMEINCONSISTENCY = "Runtime inconsistency",
+    ZOO_DATAINCONSISTENCY = "Data inconsistency",
+    ZOO_CONNECTIONLOSS = "Connection to the server has been lost",
+    ZOO_MARSHALLINGERROR = "Error while marshalling or unmarshalling data",
+    ZOO_UNIMPLEMENTED = "Operation not implemented",
+    ZOO_TIMEOUT = "Operation timeout",
+    ZOO_BADARGUMENTS = "Invalid argument",
+    ZOO_INVALIDSTATE = "Invalid zhandle state",
+    ZOO_APIERROR = "API error",
+    ZOO_NONODE = "Znode does not exist",
+    ZOO_NOAUTH = "Not authenticated",
+    ZOO_BADVERSION = "Version conflict",
+    ZOO_NOCHILDRENFOREPHEMERALS = "Ephemeral nodes may not have children",
+    ZOO_NODEEXISTS = "Znode already exists",
+    ZOO_NOTEMPTY = "The znode has children",
+    ZOO_SESSIONEXPIRED = "The session has been expired by the server",
+    ZOO_INVALIDCALLBACK = "Invalid callback specified",
+    ZOO_INVALIDACL = "Invalid ACL specified",
+    ZOO_AUTHFAILED = "Client authentication failed",
+    ZOO_CLOSING = "ZooKeeper session is closing",
+    ZOO_NOTHING = "No response from server",
+    ZOO_SESSIONMOVED = "Session moved to a different server"
+  },
+
+  WatcherType = {
+    CHILDREN = 1,
+    DATA = 2
   },
 
   flags = {
@@ -29,6 +57,7 @@ local _M = {
 }
 
 local errors
+local WatcherType
 local create
 local delete
 local delete_recursive
@@ -39,7 +68,7 @@ local CACHE = ngx.shared.zoo_cache
 local CONFIG = ngx.shared.config
 
 local pcall, xpcall = pcall, xpcall
-local ipairs = ipairs
+local ipairs, pairs = ipairs, pairs
 local unpack = unpack
 local type = type
 local now, update_time = ngx.now, ngx.update_time
@@ -48,7 +77,8 @@ local sleep = ngx.sleep
 local WARN, DEBUG = ngx.WARN, ngx.DEBUG
 local sub = string.sub
 local rep = string.rep
-local tconcat = table.concat
+local tconcat, tinsert = table.concat, table.insert
+local md5, format = ngx.md5, string.format
 
 local json_decode = cjson.decode
 local json_encode = cjson.encode
@@ -372,13 +402,124 @@ function _M.connected()
   return zoo.connected()
 end
 
+local watched = {}
+local job
+
+function _M.unwatch(znode, watch_type)
+  if watch_type ~= WatcherType.DATA and watch_type ~= WatcherType.CHILDREN then
+    return nil, "invalid watch type"
+  end
+
+  local v = watched[znode]
+  if not v or not v[watch_type] then
+    return nil, "not watched (unwatch can be used only from ngx.timer context or when worker_processes=1)"
+  end
+
+  local ok, err = zoo_call(function()
+    return zoo.aunwatch(znode, watch_type)
+  end)
+
+  if ok then
+    watched[znode][watch_type] = nil
+
+    debug(function()
+      return "unwatch: ", znode, " type=", watch_type
+    end)
+
+    return true
+  end
+
+  return nil, err
+end
+
+function _M.watch(znode, watch_type, callback, ctx)
+  if watch_type ~= WatcherType.DATA and watch_type ~= WatcherType.CHILDREN then
+    return nil, "invalid watch type"
+  end
+
+  local data, err = zoo_call(function()
+    return zoo.awatch(znode, watch_type)
+  end)
+
+  if not data then
+    return nil, err
+  end
+
+  debug(function()
+    return "watch: ", znode, " type=", watch_type
+  end)
+
+  watched[znode] = watched[znode] or {}
+  watched[znode][watch_type] = {
+    callback = callback,
+    ctx = ctx
+  }
+
+  local result = data[1]
+
+  if job then
+    return result
+  end
+
+  local function handler(premature)
+    if premature then
+      return
+    end
+
+    job = nil
+
+    local changed, err
+
+    if not zoo.connected() then
+      goto settimer
+    end
+
+    changed, err = zoo.changed()
+ 
+    if not changed then
+      ngx_log(WARN, "watch: ", err)
+      goto settimer
+    end
+
+    if #changed ~= 0 then
+      debug(function()
+        return "changed: ", json_encode(changed)
+      end)
+    end
+
+    for _,c in ipairs(changed)
+    do
+      local node, watcher_type = unpack(c)
+      if watched[node] then
+        local v = watched[node][watcher_type]
+        if v then
+          watched[node][watcher_type] = nil
+          if not next(watched[node]) then
+            watched[node] = nil
+          end
+          pcall(v.callback, v.ctx)
+        end
+      end
+    end
+
+:: settimer ::
+
+    job = assert(ngx.timer.at(1, handler))
+  end
+
+  job = assert(ngx.timer.at(1, handler))
+  return result
+end
+
 do
   errors           = _M.errors
+  WatcherType      = _M.WatcherType
   create           = _M.create
   delete           = _M.delete
   delete_recursive = _M.delete_recursive
   childrens        = _M.childrens
   clear_in_cache   = _M.clear_in_cache
 end
+
 
 return _M
