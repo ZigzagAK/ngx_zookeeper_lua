@@ -62,6 +62,8 @@ local create
 local delete
 local delete_recursive
 local childrens
+local watch
+local unwatch
 local clear_in_cache
 
 local CACHE = ngx.shared.zoo_cache
@@ -69,6 +71,7 @@ local CONFIG = ngx.shared.config
 
 local pcall, xpcall = pcall, xpcall
 local ipairs, pairs = ipairs, pairs
+local assert = assert
 local unpack = unpack
 local type = type
 local now, update_time = ngx.now, ngx.update_time
@@ -433,6 +436,12 @@ function _M.unwatch(znode, watch_type)
   return nil, err
 end
 
+function _M.watcher_exists(znode, watch_type)
+  return watched[znode] ~= nil and (
+    not watch_type or watched[znode][watch_type] == watch_type
+  )
+end
+
 function _M.watch(znode, watch_type, callback, ctx)
   if watch_type ~= WatcherType.DATA and watch_type ~= WatcherType.CHILDREN then
     return nil, "invalid watch type"
@@ -443,6 +452,20 @@ function _M.watch(znode, watch_type, callback, ctx)
   end)
 
   if not data then
+    if err == "exists" then
+      if watch_type == WatcherType.DATA then
+        data, err = zoo_call(function()
+          return zoo.aget(znode)
+        end)
+      else
+        data, err = zoo_call(function()
+          return zoo.achildrens(znode)
+        end)
+      end
+      if data then
+        return data[1]
+      end
+    end
     return nil, err
   end
 
@@ -453,7 +476,8 @@ function _M.watch(znode, watch_type, callback, ctx)
   watched[znode] = watched[znode] or {}
   watched[znode][watch_type] = {
     callback = callback,
-    ctx = ctx
+    ctx = ctx,
+    path = znode
   }
 
   local result = data[1]
@@ -498,7 +522,10 @@ function _M.watch(znode, watch_type, callback, ctx)
           if not next(watched[node]) then
             watched[node] = nil
           end
-          pcall(v.callback, v.ctx)
+          pcall(v.callback, v.ctx, {
+            path = v.path,
+            watcher_type = watcher_type
+          })
         end
       end
     end
@@ -512,6 +539,18 @@ function _M.watch(znode, watch_type, callback, ctx)
   return result
 end
 
+function _M.watch_path(znode, callback, ctx)
+  local tree = {}
+
+  tree.__value = assert(watch(znode, WatcherType.DATA, callback, ctx))
+
+  for _,c in ipairs(assert(watch(znode, WatcherType.CHILDREN, callback, ctx))) do
+    tree[c] = assert(_M.watch_path(znode .. "/" .. c, callback, ctx))
+  end
+
+  return tree
+end
+
 do
   errors           = _M.errors
   WatcherType      = _M.WatcherType
@@ -519,6 +558,8 @@ do
   delete           = _M.delete
   delete_recursive = _M.delete_recursive
   childrens        = _M.childrens
+  watch            = _M.watch
+  unwatch          = _M.unwatch
   clear_in_cache   = _M.clear_in_cache
 end
 

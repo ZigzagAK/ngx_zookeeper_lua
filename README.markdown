@@ -27,6 +27,8 @@ Table of Contents
   * [delete_recursive](#delete_recursive)
   * [tree](#tree)
   * [watch](#watch)
+  * [watch_path](#watch_path)
+  * [watcher_exists](#watcher_exists)
   * [unwatch](#unwatch)
 * [Additional API](#additional-api)
   * [api.tree](#api-tree)
@@ -281,6 +283,33 @@ http {
 }
 ```
 
+**Watch tree**
+
+```nginx
+  location / {
+    content_by_lua_block {
+      local zoo = require "zoo"
+      local cjson = require "cjson"
+
+      local function on_event(ctx, ev)
+        local data = assert(zoo.watch(ev.path, ev.watcher_type, on_event, ctx))
+        ngx.log(ngx.INFO, "on_event: ", ev.path, ", type=", ev.watcher_type, " :", cjson.encode(data))
+        if ev.watcher_type == zoo.WatcherType.CHILDREN then
+          for _,c in ipairs(data) do
+            if not zoo.watcher_exists(ev.path .. "/" .. c) then
+              assert(zoo.watch_path(ev.path .. "/" .. c, on_event, ctx))
+            end
+          end
+          ctx.data[ev.path] = data
+        end
+      end
+
+      local ctx = { ["/test"] = assert(zoo.childrens("/test")) }
+      assert(zoo.watch_path("/test", on_event, ctx))
+    }
+  }
+```
+
 [Back to TOC](#table-of-contents)
 
 Simple UI
@@ -437,6 +466,36 @@ Get value or childrens and setup wather for `znode`.
 watcher_type MUST be one of `zoo.WatcherType.CHILDREN, zoo.WatcherType.DATA`.  
 
 Returns value/childrens on success, or nil and a string describing an error otherwise.  
+
+See [Synopsis](#synopsis) for details.
+
+[Back to TOC](#table-of-contents)
+
+watch_path
+----------------
+**syntax:** `tree, err = zoo.watch_path(znode, callback, ctx)`
+
+**context:** *&#42;_by_lua&#42;*
+
+Get full tree and setup watchers whole tree.  
+
+Return tree on success, or nil and a string describing an error otherwise.  
+
+See [Synopsis](#synopsis) for details.
+
+[Back to TOC](#table-of-contents)
+
+watcher_exists
+----------------
+**syntax:** `flag = zoo.watcher_exists(znode, watch_type)`
+
+**context:** *&#42;_by_lua&#42;*
+
+Check for watcher exists for `znode`.  
+
+watcher_type MUST be one of `zoo.WatcherType.CHILDREN, zoo.WatcherType.DATA` or MAY be nil.  
+
+Returns true or false.  
 
 See [Synopsis](#synopsis) for details.
 
