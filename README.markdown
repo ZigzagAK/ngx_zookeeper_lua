@@ -350,6 +350,14 @@ zookeeper_recv_timeout
 
 Configure Zookeeper socket recv timeout.
 
+zookeeper_node
+--------------
+* **syntax**: `zookeeper_node <path/to/node> <node> [data]`
+* **default**: `none`
+* **context**: `http,server,location`
+
+Create persistent Zookeeper node.
+
 zookeeper_ethemeral_node
 --------------
 * **syntax**: `zookeeper_ethemeral_node <path/to/instances> <value> [data]`
