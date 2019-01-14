@@ -352,3 +352,45 @@ true Version conflict
 true nil
 test2 nil
 
+
+=== TEST 7: create path
+--- http_config
+    lua_package_path          "lua/?.lua;;";
+
+    zookeeper                 127.0.0.1:2181;
+    zookeeper_log_level       debug;
+    zookeeper_recv_timeout    60000;
+
+    lua_shared_dict config    64k;
+    lua_shared_dict zoo_cache 10m;
+
+    init_by_lua_block {
+      ngx.shared.config:set("zoo.cache.on", false)
+      ngx.shared.config:set("zoo.cache.path.ttl", "{}")
+    }
+--- config
+    location /test {
+        content_by_lua_block {
+          local zoo = require "zoo"
+          ngx.sleep(0.5)
+
+          local ok, err = zoo.create_path(ngx.var.arg_znode)
+          ngx.say(ok, " ", err)
+
+          local s, err = zoo.set(ngx.var.arg_znode, ngx.var.arg_value)
+          ngx.say(s ~= nil, " ", err)
+
+          local val, _, err = zoo.get(ngx.var.arg_znode)
+          ngx.say(val, " ", err)
+
+          zoo.delete_recursive(ngx.var.arg_znode)
+        }
+    }
+--- timeout: 1
+--- request
+    GET /test?znode=/test/a/b/c/d/e&value=test
+--- response_body
+true nil
+true nil
+test nil
+

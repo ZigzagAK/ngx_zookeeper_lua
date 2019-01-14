@@ -320,6 +320,18 @@ end
 function _M.create_path(znode)
   local path = "/"
 
+  local data, err = zoo_call(function()
+    return zoo.aget(znode)
+  end)
+
+  if data then
+    return true
+  end
+
+  if err ~= errors.ZOO_NONODE then
+    return nil, err
+  end
+
   for p in znode:gmatch("/([^/]+)")
   do
     local ok, err = create(path .. p)
