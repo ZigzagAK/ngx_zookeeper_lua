@@ -4,4 +4,4 @@ compiler:
   - gcc
 
 script:
-  - ./build.sh
+  - ./build.sh build
