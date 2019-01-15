@@ -86,13 +86,13 @@ local md5, format = ngx.md5, string.format
 local json_decode = cjson.decode
 local json_encode = cjson.encode
 
-local zoo_cache_on = CONFIG:get("zoo.cache.on")
-local zoo_cache_ttl = CONFIG:get("zoo.cache.ttl") or 60
+local zoo_cache_on       = CONFIG:get("zoo.cache.on")
+local zoo_cache_ttl      = CONFIG:get("zoo.cache.ttl") or 60
 local zoo_cache_path_ttl = json_decode(CONFIG:get("zoo.cache.path.ttl") or {})
-local zoo_decode_json = CONFIG:get("zoo.decode_json")
+local zoo_decode_json    = CONFIG:get("zoo.decode_json")
 local zoo_watch_interval = CONFIG:get("zoo.watch.interval") or 1
+local zoo_debug          = CONFIG:get("zoo.debug")
 
-local zoo_debug = CONFIG:get("zoo.cache.debug")
 local function debug(fun)
   if zoo_debug then
     ngx_log(DEBUG, fun())
@@ -196,8 +196,13 @@ local function zoo_call(fun)
 end
 
 function _M.clear_in_cache(znode)
-  CACHE:delete("c:" .. znode)
-  CACHE:delete("v:" .. znode)
+  CACHE:delete("$c:" .. znode)
+  CACHE:delete("$v:" .. znode)
+end
+
+function _M.clear_cache()
+  CACHE:flush_all()
+  CACHE:flush_expired()
 end
 
 local function save_in_cache(prefix, znode, v, stat)
@@ -235,10 +240,12 @@ local function get_from_cache(prefix, znode)
   end
 end
 
-function _M.get(znode)
-  local cached = get_from_cache("v", znode)
-  if cached then
-    return cached.value, cached.stat
+function _M.get(znode, nocache)
+  if not nocache then
+    local cached = get_from_cache("$v", znode)
+    if cached then
+      return cached.value, cached.stat
+    end
   end
 
   local data, err = zoo_call(function()
@@ -264,15 +271,17 @@ function _M.get(znode)
     end
   end
 
-  save_in_cache("v", znode, value or "", stat)
+  save_in_cache("$v", znode, value or "", stat)
 
   return value or "", stat
 end
 
-function _M.childrens(znode)
-  local cached = get_from_cache("c", znode)
-  if cached then
-    return cached.value or {}
+function _M.childrens(znode, nocache)
+  if not nocache then
+    local cached = get_from_cache("$c", znode)
+    if cached then
+      return cached.value or {}
+    end
   end
 
   local data, err = zoo_call(function()
@@ -285,7 +294,7 @@ function _M.childrens(znode)
 
   local childs, stat = unpack(data)
 
-  save_in_cache("c", znode, childs, nil)
+  save_in_cache("$c", znode, childs, nil)
   debug(function()
     return "zoo childrens: ", znode, "=", json_encode(childs)
   end)
@@ -385,7 +394,7 @@ function _M.tree(znode, with_stat)
   local function traverse(zpath, node)
     local value, stat = node.__value, node.__stat
 
-    save_in_cache("v", zpath, value, stat)
+    save_in_cache("$v", zpath, value, stat)
     node.__value, node.__stat = nil, nil
 
     local childs = {}
@@ -398,7 +407,7 @@ function _M.tree(znode, with_stat)
       end
     end
 
-    save_in_cache("c", zpath, childs, nil)
+    save_in_cache("$c", zpath, childs, nil)
 
     node.value, node.stat = (#value ~= 0 or #childs == 0) and value or nil, with_stat and stat or nil
 

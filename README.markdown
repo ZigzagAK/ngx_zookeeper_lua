@@ -391,22 +391,26 @@ Returns true or false.
 
 get
 ---
-**syntax:** `value, stat, err = zoo.get(znode)`
+**syntax:** `value, stat, err = zoo.get(znode, nocache)`
 
 **context:** *&#42;_by_lua&#42;*
 
 Get value of the `znode` and znode information.
-`stat`: { czxid, mzxid, ctime, mtime, version, cversion, aversion, ephemeralOwner, dataLength, numChildren, pzxid }
+`stat`: { czxid, mzxid, ctime, mtime, version, cversion, aversion, ephemeralOwner, dataLength, numChildren, pzxid }  
+
+`nocache=true`: bypass cache.  
 
 Returns value on success, or nil and a string describing an error otherwise.
 
 childrens
 ---------
-**syntax:** `childs, err = zoo.childrens(znode)`
+**syntax:** `childs, err = zoo.childrens(znode, nocache)`
 
 **context:** *&#42;_by_lua&#42;*
 
-Get child znode's names of the `znode`.
+Get child znode's names of the `znode`.  
+
+`nocache=true`: bypass cache. 
 
 Returns table with znode's names on success, or nil and a string describing an error otherwise.
 
