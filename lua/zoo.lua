@@ -473,7 +473,7 @@ function _M.watch(znode, watch_type, callback, ctx)
   end)
 
   if not data then
-    if err == "exists" then
+    if err == "awatch: exists" then
       if watch_type == WatcherType.DATA then
         data, err = zoo_call(function()
           return zoo.aget(znode)
