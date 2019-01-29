@@ -200,8 +200,17 @@ function _M.clear_in_cache(znode)
   CACHE:delete("$v:" .. znode)
 end
 
-function _M.clear_cache()
-  CACHE:flush_all()
+function _M.clear_cache(prefix)
+  if not prefix then
+    CACHE:flush_all()
+  else
+    prefix = "^%$[cv]:" .. prefix
+    for _,key in ipairs(CACHE:get_keys(0) or {}) do
+      if key:match(prefix) then
+        CACHE:delete(key)
+      end
+    end
+  end
   CACHE:flush_expired()
 end
 
