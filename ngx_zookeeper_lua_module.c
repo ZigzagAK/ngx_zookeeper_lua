@@ -194,6 +194,7 @@ typedef struct {
     char         *data;
     int           epoch;
     ngx_flag_t    ethemeral;
+    const char   *fmt;
 } ngx_zoo_node_t;
 
 
@@ -384,6 +385,22 @@ cstr(ngx_pool_t *pool, ngx_str_t s)
 }
 
 
+static ngx_flag_t
+exists_node(ngx_http_zookeeper_lua_main_conf_t *zmcf, const char *znode)
+{
+    ngx_uint_t       j;
+    ngx_zoo_node_t  *nodes;
+
+    nodes = zmcf->nodes->elts;
+
+    for (j = 0; j < zmcf->nodes->nelts; j++)
+        if (ngx_strcmp(znode, nodes[j].node) == 0)
+            return 1;
+
+    return 0;
+}
+
+
 static char *
 ngx_http_zookeeper_lua_node(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf)
@@ -394,6 +411,8 @@ ngx_http_zookeeper_lua_node(ngx_conf_t *cf, ngx_command_t *cmd,
     ngx_conf_post_t                     *post;
 
     node = ngx_array_push(zmcf->nodes);
+    zmcf->nodes->nelts--;
+    ngx_memzero(node, sizeof(ngx_zoo_node_t));
 
     node->path = path_parse(cf->pool, values[1]);
     node->value = cstr(cf->pool, values[2]);
@@ -401,8 +420,12 @@ ngx_http_zookeeper_lua_node(ngx_conf_t *cf, ngx_command_t *cmd,
     if (node->node == NULL)
         return NGX_CONF_ERROR;
 
+    if (exists_node(zmcf, node->node))
+        return NGX_CONF_OK;
+
     node->epoch = 0;
     node->ethemeral = 0;
+    node->fmt = "Node has been created: %s";
 
     if (cf->args->nelts == 4) {
 
@@ -412,6 +435,8 @@ ngx_http_zookeeper_lua_node(ngx_conf_t *cf, ngx_command_t *cmd,
 
     } else
         node->data = "";
+
+    zmcf->nodes->nelts++;
 
     if (cmd->post) {
 
@@ -429,6 +454,7 @@ ngx_http_zookeeper_node_ethemeral(ngx_conf_t *cf, void *post, void *data)
     ngx_zoo_node_t  *node = data;
 
     node->ethemeral = 1;
+    node->fmt = "Ethemeral node has been created: %s";
 
     return NGX_CONF_OK;
 }
@@ -447,20 +473,26 @@ ngx_http_zookeeper_lua_register_port(ngx_conf_t *cf, ngx_command_t *cmd,
     for (j = 0; j < zmcf->naddrs; j++) {
 
         node = ngx_array_push(zmcf->nodes);
+        zmcf->nodes->nelts--;
+        ngx_memzero(node, sizeof(ngx_zoo_node_t));
 
         node->path = path_parse(cf->pool, values[1]);
         node->value = concat(cf->pool, zmcf->addrs[j].name, values[2], ':');
         if (node->value == NULL)
-            return NULL;
+            return NGX_CONF_ERROR;
 
         val.data = (u_char *) node->value;
         val.len = strlen(node->value);
         node->node = concat(cf->pool, values[1], val, '/');
         if (node->node == NULL)
-            return NULL;
+            return NGX_CONF_ERROR;
+
+        if (exists_node(zmcf, node->node))
+            continue;
 
         node->epoch = 0;
         node->ethemeral = 1;
+        node->fmt = "Nginx has been registered, instance: %s";
 
         if (cf->args->nelts == 4) {
 
@@ -470,6 +502,8 @@ ngx_http_zookeeper_lua_register_port(ngx_conf_t *cf, ngx_command_t *cmd,
 
         } else
             node->data = "";
+
+        zmcf->nodes->nelts++;
     }
 
     return NGX_CONF_OK;
@@ -629,17 +663,7 @@ ngx_zookeeper_register_ready(int rc, const char *value, const void *data)
 
     if (rc == ZOK && data) {
 
-        if (node->ethemeral) {
-
-            ngx_log_error(NGX_LOG_INFO, ngx_cycle->log, 0,
-                          "Nginx has been registered, instance: %s",
-                          node->node);
-        } else {
-
-            ngx_log_error(NGX_LOG_INFO, ngx_cycle->log, 0,
-                          "Node has been created: %s",
-                          node->node);
-        }
+        ngx_log_error(NGX_LOG_INFO, ngx_cycle->log, 0, node->fmt, node->node);
 
         node->epoch = ngx_http_zmcf()->epoch;
     }
