@@ -639,36 +639,33 @@ ngx_zerr(int rc)
 static void
 ngx_zookeeper_register_ready(int rc, const char *value, const void *data)
 {
-    ngx_zoo_node_t *node = (ngx_zoo_node_t *) data;
+    ngx_zoo_node_t  *node = (ngx_zoo_node_t *) data;
 
-    if (rc != ZOK) {
+    if (rc == ZOK || rc == ZNODEEXISTS) {
 
-        if (rc != ZNODEEXISTS) {
+        if (node != NULL) {
 
-            if (data) {
+            node->epoch = ngx_http_zmcf()->epoch;
 
-                ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                              "Zookeeper can't create %s node %s: %s",
-                              node->ethemeral ? "ethemeral" : "regular",
-                              node->node, ngx_zerr(rc));
-            } else {
-
-                ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                              "Zookeeper can't create node %s: %s",
-                              value != NULL ? value : "???", ngx_zerr(rc));
-            }
+            ngx_log_error(NGX_LOG_INFO, ngx_cycle->log, 0,
+                node->fmt, node->node);
         }
+
         return;
     }
 
-    if (rc == ZOK && data) {
+    if (node != NULL) {
 
-        ngx_log_error(NGX_LOG_INFO, ngx_cycle->log, 0, node->fmt, node->node);
+        ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
+                      "Zookeeper can't create %s node %s: %s",
+                      node->ethemeral ? "ethemeral" : "regular",
+                      node->node, ngx_zerr(rc));
+    } else {
 
-        node->epoch = ngx_http_zmcf()->epoch;
+        ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
+                      "Zookeeper can't create node %s: %s",
+                      value != NULL ? value : "???", ngx_zerr(rc));
     }
-
-    return;
 }
 
 
@@ -726,10 +723,12 @@ ngx_zookeeper_register_callback(ngx_event_t *ev)
                     &ZOO_OPEN_ACL_UNSAFE, 0, ngx_zookeeper_register_ready,
                     NULL);
 
-                if (rc != ZOK)
+                if (rc != ZOK) {
+
                     ngx_log_error(NGX_LOG_ERR, ev->log, 0,
                                   "Zookeeper: error create node %s : %s",
                                   path[j], ngx_zerr(rc));
+                }
             }
 
             rc = zoo_acreate(zmcf->zoo.handle, nodes[i].node, nodes[i].data,
