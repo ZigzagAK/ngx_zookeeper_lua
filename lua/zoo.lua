@@ -326,7 +326,9 @@ function _M.set(znode, value, version)
 end
 
 function _M.create(znode, value, flags)
-  value = type(value) == "table" and json_encode(value) or value or ""
+  value = type(value) == "table" and (
+    #value == 0 and json_pretty_encode(value) or tconcat(value, "\n")
+  ) or value or ""
 
   local data, err = zoo_call(function()
     return zoo.acreate(znode, value, flags or 0)
