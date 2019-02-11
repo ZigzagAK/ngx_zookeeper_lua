@@ -1181,6 +1181,7 @@ ngx_zookeeper_check_completition(lua_State *L)
 {
     datatype_t   *data;
     zookeeper_t  *zoo = ngx_http_zmcf();
+    int           n = 3;
 
     if (lua_gettop(L) != 1)
         return ngx_zookeeper_lua_error(L, "check_completition",
@@ -1225,30 +1226,36 @@ ngx_zookeeper_check_completition(lua_State *L)
         return 1;
     }
 
-    if (data->data) {
+    if (data->error == NULL) {
 
-        data->completition_fn(L, data->data);
-        lua_pushnil(L);
+        if (data->data != NULL) {
 
-    } else if (data->error == NULL) {
+            data->completition_fn(L, data->data);
+            lua_pushnil(L);
 
-        lua_pushnil(L);
-        lua_pushnil(L);
+        } else {
 
-    } else {
+            lua_pushnil(L);
+            lua_pushnil(L);
+        }
 
-        lua_pushnil(L);
-        lua_pushlstring(L, data->error, strlen(data->error));
+        if (data->stat.pzxid) {
+
+            ngx_zookeeper_push_stat(L, &data->stat);
+            n++;
+        }
+
+        goto done;
     }
 
-    if (data->stat.pzxid) {
+    lua_pushnil(L);
+    lua_pushlstring(L, data->error, strlen(data->error));
 
-        ngx_zookeeper_push_stat(L, &data->stat);
-    }
+done:
 
     dereference(data, 1);
 
-    return 3 + (data->stat.pzxid ? 1 : 0);
+    return n;
 }
 
 
