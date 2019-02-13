@@ -71,18 +71,18 @@ static ngx_conf_post_t  ngx_http_zookeeper_ethemeral = {
 
 typedef struct
 {
-    zhandle_t         *handle;
-    ngx_flag_t         connected;
-    const clientid_t  *client_id;
-    ngx_flag_t         expired;
-    int                epoch;
+    zhandle_t           *handle;
+    volatile ngx_flag_t  connected;
+    const clientid_t    *client_id;
+    volatile ngx_flag_t  expired;
+    volatile int         epoch;
 } zookeeper_t;
 
 
 typedef struct {
-    ngx_str_t   path;
-    int         watch_type;
-    ngx_flag_t  changed;
+    ngx_str_t            path;
+    int                  watch_type;
+    volatile ngx_flag_t  changed;
 } watched_t;
 
 typedef struct
@@ -2051,23 +2051,33 @@ ngx_zookeeper_atree(lua_State *L)
 }
 
 
+typedef struct {
+    datatype_t  *data;
+    ngx_int_t    index;
+} watch_ready_context_t;
+
+
 static void
 ngx_zookeeper_watch(zhandle_t *zh, int type,
-    int state, const char *path, void *p)
+    int state, const char *path, void *ctxp)
 {
-    watched_t  *w = p;
+    ngx_int_t                            index = (ngx_int_t) ctxp;
+    ngx_http_zookeeper_lua_main_conf_t  *zmcf;
+
+    zmcf = ngx_http_cycle_get_module_main_conf(ngx_cycle,
+                                               ngx_zookeeper_lua_module);
 
     if (type == ZOO_CHILD_EVENT
         || type == ZOO_CHANGED_EVENT
-        || type == ZOO_DELETED_EVENT)
-        w->changed = 1;
+        || type == ZOO_DELETED_EVENT) {
+
+        ngx_rwlock_rlock(&zmcf->lock);
+
+        (((watched_t *) zmcf->watched->elts) + index)->changed = 1;
+
+        ngx_rwlock_unlock(&zmcf->lock);
+    }
 }
-
-
-typedef struct {
-    datatype_t  *data;
-    watched_t   *w;
-} watch_ready_context_t;
 
 
 static void
@@ -2084,6 +2094,7 @@ static void
 ngx_zookeeper_watch_ready(int rc, watch_ready_context_t *ctx)
 {
     ngx_http_zookeeper_lua_main_conf_t  *zmcf;
+    watched_t                           *w;
 
     if (rc == ZOK)
         return;
@@ -2091,9 +2102,11 @@ ngx_zookeeper_watch_ready(int rc, watch_ready_context_t *ctx)
     zmcf = ngx_http_cycle_get_module_main_conf(ngx_cycle,
                                                ngx_zookeeper_lua_module);
 
-    ngx_rwlock_wlock(&zmcf->lock);
+    ngx_rwlock_rlock(&zmcf->lock);
 
-    ngx_zookeeper_awatch_free_slot(ctx->w);
+    w = zmcf->watched->elts;
+
+    ngx_zookeeper_awatch_free_slot(w + ctx->index);
 
     ngx_rwlock_unlock(&zmcf->lock);
 }
@@ -2123,7 +2136,7 @@ ngx_zookeeper_watch_children_ready(int rc, const struct String_vector *strings,
 }
 
 
-static watched_t *
+static ngx_int_t
 ngx_zookeeper_awatch_exists(str_t path, int watch_type)
 {
     ngx_http_zookeeper_lua_main_conf_t  *zmcf;
@@ -2138,13 +2151,13 @@ ngx_zookeeper_awatch_exists(str_t path, int watch_type)
 
     for (j = 0; j < zmcf->watched->nelts; j++)
         if (str_eq(s, w[j].path) && w[j].watch_type == watch_type)
-            return w + j;
+            return j;
  
-    return NULL;
+    return NGX_DECLINED;
 }
 
 
-static watched_t *
+static ngx_int_t
 ngx_zookeeper_awatch_slot()
 {
     ngx_http_zookeeper_lua_main_conf_t  *zmcf;
@@ -2158,9 +2171,13 @@ ngx_zookeeper_awatch_slot()
 
     for (j = 0; j < zmcf->watched->nelts; j++)
         if (w[j].path.data == NULL)
-            return w + j;
+            return j;
  
-    return ngx_array_push(zmcf->watched);
+    w = ngx_array_push(zmcf->watched);
+    if (w != NULL)
+        return zmcf->watched->nelts - 1;
+
+    return NGX_ERROR;
 }
 
 
@@ -2196,7 +2213,7 @@ ngx_zookeeper_awatch(lua_State *L)
 
     path.data = (char *) luaL_checklstring(L, 1, &path.len);
 
-    if (ngx_zookeeper_awatch_exists(path, watch_type)) {
+    if (ngx_zookeeper_awatch_exists(path, watch_type) != NGX_DECLINED) {
 
         ngx_rwlock_unlock(&zmcf->lock);
         return ngx_zookeeper_lua_error(L, "awatch", "exists");
@@ -2210,11 +2227,12 @@ ngx_zookeeper_awatch(lua_State *L)
     if (ctx == NULL)
         goto nomem;
 
-    w = ngx_zookeeper_awatch_slot();
-    if (w == NULL)
+    ctx->index = ngx_zookeeper_awatch_slot();
+    if (ctx->index == NGX_ERROR)
         goto nomem;
 
-    ctx->w = w;
+    w = ((watched_t *) zmcf->watched->elts) + ctx->index;
+
     ctx->data = data;
 
     w->path.len = path.len;
@@ -2228,13 +2246,14 @@ ngx_zookeeper_awatch(lua_State *L)
 
         data->completition_fn = ngx_zookeeper_get_completition;
         rc = zoo_awget(zmcf->zoo.handle, path.data,
-            ngx_zookeeper_watch, w, ngx_zookeeper_watch_data_ready, ctx);
+            ngx_zookeeper_watch, (void *) ctx->index,
+            ngx_zookeeper_watch_data_ready, ctx);
 
     } else {
 
         data->completition_fn = ngx_zookeeper_get_childrens_completition;
         rc = zoo_awget_children(zmcf->zoo.handle, path.data,
-            ngx_zookeeper_watch, w,
+            ngx_zookeeper_watch, (void *) ctx->index,
             ngx_zookeeper_watch_children_ready, ctx);
 
     }
@@ -2300,8 +2319,9 @@ ngx_zookeeper_aunwatch(lua_State *L)
     datatype_t                          *data;
     str_t                                path;
     ngx_http_zookeeper_lua_main_conf_t  *zmcf;
-    watched_t                           *w;
     int                                  watch_type;
+    ngx_int_t                            index;
+    watched_t                           *w;
 
     zmcf = ngx_http_cycle_get_module_main_conf(ngx_cycle,
                                                ngx_zookeeper_lua_module);
@@ -2326,8 +2346,8 @@ ngx_zookeeper_aunwatch(lua_State *L)
 
     path.data = (char *) luaL_checklstring(L, 1, &path.len);
 
-    w = ngx_zookeeper_awatch_exists(path, watch_type);
-    if (w == NULL) {
+    index = ngx_zookeeper_awatch_exists(path, watch_type);
+    if (index == NGX_DECLINED) {
 
         ngx_rwlock_unlock(&zmcf->lock);
         return ngx_zookeeper_lua_error(L, "aunwatch", "not exists");
@@ -2343,12 +2363,14 @@ ngx_zookeeper_aunwatch(lua_State *L)
     data->completition_fn = ngx_zookeeper_void_completition;
 
     rc = zoo_aremove_watchers(zmcf->zoo.handle, path.data, watch_type,
-        ngx_zookeeper_watch, w, 0,
+        ngx_zookeeper_watch, (void *) index, 0,
         (void_completion_t *) ngx_zookeeper_unwatch_ready, data);
 
     if (rc == ZOK || rc == ZNOWATCHER) {
 
-        ngx_zookeeper_awatch_free_slot(w);
+        w = zmcf->watched->elts;
+
+        ngx_zookeeper_awatch_free_slot(w + index);
 
         if (rc == ZNOWATCHER) {
 
@@ -2389,7 +2411,7 @@ ngx_zookeeper_changed(lua_State *L)
 
     lua_newtable(L);
 
-    ngx_rwlock_wlock(&zmcf->lock);
+    ngx_rwlock_rlock(&zmcf->lock);
 
     for (j = 0; j < zmcf->watched->nelts; j++) {
 
