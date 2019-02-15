@@ -1700,6 +1700,9 @@ ngx_zookeeper_acreate(lua_State *L)
         return ngx_zookeeper_lua_error(L, "acreate",
                                        "exactly 2 or 3 arguments expected");
 
+    if (lua_gettop(L) == 3)
+        flags = luaL_checkinteger(L, 3);
+
     data = new(L);
     if (data == NULL)
         return ngx_zookeeper_lua_error(L, "acreate", "no memory");
@@ -1708,9 +1711,6 @@ ngx_zookeeper_acreate(lua_State *L)
     value.data = (char *) luaL_checklstring(L, 2, &value.len);
 
     data->completition_fn = ngx_zookeeper_create_completition;
-
-    if (lua_gettop(L) == 3)
-        flags = luaL_checkinteger(L, 3);
 
     rc = zoo_acreate(zoo->handle, path.data, value.data, value.len,
         &ZOO_OPEN_ACL_UNSAFE, flags, ngx_zookeeper_create_ready, data);
