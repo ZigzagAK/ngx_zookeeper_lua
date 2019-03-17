@@ -2,6 +2,7 @@
 
 #include <ngx_http.h>
 #include <lauxlib.h>
+#include <luajit.h>
 #include <assert.h>
 #include <zookeeper/zookeeper.h>
 #include <ngx_inet.h>
@@ -926,6 +927,7 @@ static int ngx_zookeeper_aunwatch(lua_State *L);
 
 static int ngx_zookeeper_changed(lua_State *L);
 
+#ifndef OPENRESTY_LUAJIT
 #if !defined LUA_VERSION_NUM || LUA_VERSION_NUM < 502
 
 static void
@@ -946,6 +948,7 @@ luaL_setfuncs(lua_State *l, const luaL_Reg *reg, int nup)
     lua_pop(l, nup);
 }
 
+#endif
 #endif
 
 
