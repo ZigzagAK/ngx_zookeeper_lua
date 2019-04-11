@@ -2244,6 +2244,7 @@ ngx_zookeeper_awatch(lua_State *L)
         goto nomem;
     ngx_memcpy(w->path.data, path.data, path.len);
     w->watch_type = watch_type;
+    w->changed = 0;
 
     if (watch_type == ZWATCHERTYPE_DATA) {
 
