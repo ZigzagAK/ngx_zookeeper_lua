@@ -16,7 +16,7 @@ end
 local timeout = zoo.timeout()
 
 local _M = {
-  _VERSION = "2.4.0",
+  _VERSION = "2.5.2",
 
   errors = {
     ZOO_OK = "OK",
@@ -88,7 +88,7 @@ local json_encode = cjson.encode
 
 local zoo_cache_on       = CONFIG:get("zoo.cache.on")
 local zoo_cache_ttl      = CONFIG:get("zoo.cache.ttl") or 60
-local zoo_cache_path_ttl = json_decode(CONFIG:get("zoo.cache.path.ttl") or {})
+local zoo_cache_path_ttl = json_decode(CONFIG:get("zoo.cache.path.ttl") or "{}")
 local zoo_decode_json    = CONFIG:get("zoo.decode_json")
 local zoo_watch_interval = CONFIG:get("zoo.watch.interval") or 1
 local zoo_debug          = CONFIG:get("zoo.debug")
