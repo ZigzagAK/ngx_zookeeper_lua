@@ -353,7 +353,7 @@ true nil
 test2 nil
 
 
-=== TEST 7: create path
+=== TEST 8: create path
 --- http_config
     lua_package_path          "lua/?.lua;;";
 
