@@ -1,6 +1,8 @@
 use Test::Nginx::Socket;
 use Test::Nginx::Socket::Lua::Stream;
 
+$ENV{TEST_NGINX_ZOOKEEPER_PORT} ||= 2181;
+
 repeat_each(1);
 
 plan tests => repeat_each() * 2 * blocks();
@@ -13,7 +15,7 @@ __DATA__
 --- http_config
     lua_package_path          "lua/?.lua;;";
 
-    zookeeper                 127.0.0.1:2181;
+    zookeeper                 127.0.0.1:$TEST_NGINX_ZOOKEEPER_PORT;
     zookeeper_log_level       debug;
     zookeeper_recv_timeout    60000;
 
@@ -52,7 +54,7 @@ data true
 --- http_config
     lua_package_path          "lua/?.lua;;";
 
-    zookeeper                 127.0.0.1:2181;
+    zookeeper                 127.0.0.1:$TEST_NGINX_ZOOKEEPER_PORT;
     zookeeper_log_level       debug;
     zookeeper_recv_timeout    60000;
 
@@ -91,7 +93,7 @@ data true
 --- http_config
     lua_package_path          "lua/?.lua;;";
 
-    zookeeper                 127.0.0.1:2181;
+    zookeeper                 127.0.0.1:$TEST_NGINX_ZOOKEEPER_PORT;
     zookeeper_log_level       debug;
     zookeeper_recv_timeout    60000;
 
