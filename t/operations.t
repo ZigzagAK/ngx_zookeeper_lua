@@ -13,6 +13,7 @@ __DATA__
 
 === TEST 1: create & get & delete & get
 --- http_config
+    lua_load_resty_core off;
     lua_package_path          "lua/?.lua;;";
 
     zookeeper                 127.0.0.1:$TEST_NGINX_ZOOKEEPER_PORT;
@@ -59,6 +60,7 @@ nil Znode does not exist
 
 === TEST 2: create failed
 --- http_config
+    lua_load_resty_core off;
     lua_package_path          "lua/?.lua;;";
 
     zookeeper                 127.0.0.1:$TEST_NGINX_ZOOKEEPER_PORT;
@@ -91,6 +93,7 @@ nil Znode does not exist
 
 === TEST 3: create path & get
 --- http_config
+    lua_load_resty_core off;
     lua_package_path          "lua/?.lua;;";
 
     zookeeper                 127.0.0.1:$TEST_NGINX_ZOOKEEPER_PORT;
@@ -135,6 +138,7 @@ test nil
 
 === TEST 4: create & get & set & get & delete
 --- http_config
+    lua_load_resty_core off;
     lua_package_path          "lua/?.lua;;";
 
     zookeeper                 127.0.0.1:$TEST_NGINX_ZOOKEEPER_PORT;
@@ -187,6 +191,7 @@ nil Znode does not exist
 
 === TEST 5: create & childrens
 --- http_config
+    lua_load_resty_core off;
     lua_package_path          "lua/?.lua;;";
 
     zookeeper                 127.0.0.1:$TEST_NGINX_ZOOKEEPER_PORT;
@@ -247,6 +252,7 @@ true nil
 
 === TEST 6: create & tree
 --- http_config
+    lua_load_resty_core off;
     lua_package_path          "lua/?.lua;;";
 
     zookeeper                 127.0.0.1:$TEST_NGINX_ZOOKEEPER_PORT;
@@ -301,6 +307,7 @@ true nil
 
 === TEST 7: create & set cas
 --- http_config
+    lua_load_resty_core off;
     lua_package_path          "lua/?.lua;;";
 
     zookeeper                 127.0.0.1:$TEST_NGINX_ZOOKEEPER_PORT;
@@ -357,6 +364,7 @@ test2 nil
 
 === TEST 8: create path
 --- http_config
+    lua_load_resty_core off;
     lua_package_path          "lua/?.lua;;";
 
     zookeeper                 127.0.0.1:$TEST_NGINX_ZOOKEEPER_PORT;

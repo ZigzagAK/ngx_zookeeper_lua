@@ -13,6 +13,7 @@ __DATA__
 
 === TEST 1: data watch
 --- http_config
+    lua_load_resty_core off;
     lua_package_path          "lua/?.lua;;";
 
     zookeeper                 127.0.0.1:$TEST_NGINX_ZOOKEEPER_PORT;
@@ -85,6 +86,7 @@ unwatch:true nil
 
 === TEST 2: data watch (delete)
 --- http_config
+    lua_load_resty_core off;
     lua_package_path          "lua/?.lua;;";
 
     zookeeper                 127.0.0.1:$TEST_NGINX_ZOOKEEPER_PORT;
@@ -160,6 +162,7 @@ Znode does not exist
 
 === TEST 3: childrens watch
 --- http_config
+    lua_load_resty_core off;
     lua_package_path          "lua/?.lua;;";
 
     zookeeper                 127.0.0.1:$TEST_NGINX_ZOOKEEPER_PORT;
@@ -233,8 +236,9 @@ unwatch:true nil
 123
 
 
-=== TEST 3: childrens watch (delete)
+=== TEST 4: childrens watch (delete)
 --- http_config
+    lua_load_resty_core off;
     lua_package_path          "lua/?.lua;;";
 
     zookeeper                 127.0.0.1:$TEST_NGINX_ZOOKEEPER_PORT;

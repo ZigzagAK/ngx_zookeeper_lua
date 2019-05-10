@@ -21,10 +21,9 @@ DIR="$(pwd)"
 DIAG_DIR="diag"
 VCS_PATH=${DIR%/*/*}
 
-VERSION="1.13.6"
+VERSION="1.16.0"
 ZOO_VERSION="3.5.4-beta"
 PCRE_VERSION="8.40"
-LUAJIT_VERSION="2.1.0-beta2"
 ZLIB_VERSION="1.2.11"
 
 SUFFIX=""
@@ -221,7 +220,7 @@ function build_zoo() {
 
 function build_luajit() {
   echo "Build luajit" | tee -a $BUILD_LOG
-  cd LuaJIT-$LUAJIT_VERSION
+  cd luajit2
   make >> $BUILD_LOG 2>>$ERR_LOG
   r=$?
   if [ $r -ne 0 ]; then
@@ -345,13 +344,13 @@ function download() {
   cd src
 
   download_dep http://nginx.org/download                                           nginx     $VERSION           tar.gz
-  download_dep http://luajit.org/download                                          LuaJIT    $LUAJIT_VERSION    tar.gz
   download_dep http://www-us.apache.org/dist/zookeeper/zookeeper-$ZOO_VERSION      zookeeper $ZOO_VERSION       tar.gz
   download_dep http://ftp.cs.stanford.edu/pub/exim/pcre                            pcre      $PCRE_VERSION      tar.gz
   download_dep http://zlib.net                                                     zlib      $ZLIB_VERSION      tar.gz
 
   download_module https://github.com      simpl            ngx_devel_kit                    master
-  download_module https://github.com      openresty        lua-nginx-module                 master
+  download_module https://github.com      openresty        lua-nginx-module                 v0.10.15
+  download_module https://github.com      openresty        luajit2                          v2.1-agentzh
   download_module https://github.com      openresty        lua-cjson                        master
 
   cd ..
@@ -401,7 +400,6 @@ function build() {
 
   if [ $build_only -eq 0 ]; then
     patch -N -p0 < $DIR/patches/lua-cjson-Makefile.patch
-    patch -N -p0 < $DIR/patches/luajit.patch
   fi
 
   if [ $build_deps -eq 1 ] || [ ! -e deps/luajit ]; then

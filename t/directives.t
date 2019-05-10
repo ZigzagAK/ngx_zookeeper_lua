@@ -13,6 +13,7 @@ __DATA__
 
 === TEST 1: Persistent node
 --- http_config
+    lua_load_resty_core off;
     lua_package_path          "lua/?.lua;;";
 
     zookeeper                 127.0.0.1:$TEST_NGINX_ZOOKEEPER_PORT;
@@ -52,6 +53,7 @@ data true
 
 === TEST 2: Ethemeral node
 --- http_config
+    lua_load_resty_core off;
     lua_package_path          "lua/?.lua;;";
 
     zookeeper                 127.0.0.1:$TEST_NGINX_ZOOKEEPER_PORT;
@@ -91,6 +93,7 @@ data true
 
 === TEST 3: Register port
 --- http_config
+    lua_load_resty_core off;
     lua_package_path          "lua/?.lua;;";
 
     zookeeper                 127.0.0.1:$TEST_NGINX_ZOOKEEPER_PORT;
