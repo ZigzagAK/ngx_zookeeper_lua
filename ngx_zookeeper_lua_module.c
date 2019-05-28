@@ -2209,7 +2209,7 @@ ngx_zookeeper_awatch(lua_State *L)
 
     watch_type = luaL_checkinteger(L, 2);
 
-    if (watch_type != ZWATCHERTYPE_CHILDREN && watch_type != ZWATCHERTYPE_DATA)
+    if (watch_type != ZOO_CHILD_EVENT && watch_type != ZOO_CHANGED_EVENT)
         return ngx_zookeeper_lua_error(L, "awatch", "invalid watch type");
 
     ngx_rwlock_wlock(&zmcf->lock);
@@ -2246,7 +2246,7 @@ ngx_zookeeper_awatch(lua_State *L)
     w->watch_type = watch_type;
     w->changed = 0;
 
-    if (watch_type == ZWATCHERTYPE_DATA) {
+    if (watch_type == ZOO_CHANGED_EVENT) {
 
         data->completition_fn = ngx_zookeeper_get_completition;
         rc = zoo_awget(zmcf->zoo.handle, path.data,
@@ -2343,7 +2343,7 @@ ngx_zookeeper_aunwatch(lua_State *L)
 
     watch_type = luaL_checkinteger(L, 2);
 
-    if (watch_type != ZWATCHERTYPE_CHILDREN && watch_type != ZWATCHERTYPE_DATA)
+    if (watch_type != ZOO_CHILD_EVENT && watch_type != ZOO_CHANGED_EVENT)
         return ngx_zookeeper_lua_error(L, "aunwatch", "invalid watch type");
 
     ngx_rwlock_wlock(&zmcf->lock);
@@ -2366,7 +2366,7 @@ ngx_zookeeper_aunwatch(lua_State *L)
 
     data->completition_fn = ngx_zookeeper_void_completition;
 
-    rc = zoo_aremove_watchers(zmcf->zoo.handle, path.data, watch_type,
+    rc = zoo_aremove_watches(zmcf->zoo.handle, path.data, watch_type,
         ngx_zookeeper_watch, (void *) index, 0,
         (void_completion_t *) ngx_zookeeper_unwatch_ready, data);
 

@@ -46,8 +46,8 @@ local _M = {
   },
 
   WatcherType = {
-    CHILDREN = 1,
-    DATA = 2
+    CHILDREN = 4,
+    DATA = 3
   },
 
   flags = {
