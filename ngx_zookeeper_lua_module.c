@@ -713,9 +713,6 @@ ngx_zookeeper_register_callback(ngx_event_t *ev)
 
         if (zmcf->zoo.epoch > nodes[i].epoch) {
 
-            zoo_adelete(zmcf->zoo.handle, nodes[i].node, -1,
-                        ngx_zookeeper_delete_ready, NULL);
-
             path = nodes[i].path->elts;
 
             for (j = 0; j < nodes[i].path->nelts; ++j) {
@@ -731,6 +728,10 @@ ngx_zookeeper_register_callback(ngx_event_t *ev)
                                   path[j], ngx_zerr(rc));
                 }
             }
+
+            if (nodes[i].ethemeral)
+                zoo_adelete(zmcf->zoo.handle, nodes[i].node, -1,
+                            ngx_zookeeper_delete_ready, NULL);
 
             rc = zoo_acreate(zmcf->zoo.handle, nodes[i].node, nodes[i].data,
                 strlen(nodes[i].data), &ZOO_OPEN_ACL_UNSAFE,
