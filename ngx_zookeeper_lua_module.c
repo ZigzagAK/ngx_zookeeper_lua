@@ -839,6 +839,7 @@ session_watcher(zhandle_t *zh,
 
                 zoo->connected = 0;
                 zoo->expired = 1;
+                zoo->client_id = NULL;
             }
         }
     }
