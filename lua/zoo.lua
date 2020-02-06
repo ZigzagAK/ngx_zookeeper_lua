@@ -51,8 +51,14 @@ local _M = {
   },
 
   flags = {
-    ZOO_EPHEMERAL = bit.lshift(1, 0),
-    ZOO_SEQUENCE = bit.lshift(1, 1)
+    ZOO_PERSISTENT = 0,
+    ZOO_EPHEMERAL = 1,
+    ZOO_SEQUENCE = bit.lshift(1, 1),
+    ZOO_PERSISTENT_SEQUENTIAL = 2;
+    ZOO_EPHEMERAL_SEQUENTIAL = 3,
+    ZOO_CONTAINER = 4,
+    ZOO_PERSISTENT_WITH_TTL = 5,
+    ZOO_PERSISTENT_SEQUENTIAL_WITH_TTL = 6
   }
 }
 
