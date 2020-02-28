@@ -200,7 +200,7 @@ typedef struct {
 
 
 static void
-ngx_zookeeper_register_callback(ngx_event_t *ev);
+ngx_zookeeper_monitor(ngx_event_t *ev);
 
 
 static void *
@@ -240,7 +240,7 @@ ngx_http_zookeeper_lua_create_main_conf(ngx_conf_t *cf)
     zmcf->zoo.expired = 1;
     zmcf->zoo.epoch = 1;
 
-    zmcf->ev.handler = ngx_zookeeper_register_callback;
+    zmcf->ev.handler = ngx_zookeeper_monitor;
     c = ngx_pcalloc(cf->pool, sizeof(ngx_connection_t));
     if (c == NULL)
         return NULL;
@@ -679,7 +679,7 @@ ngx_zookeeper_delete_ready(int rc, const void *data);
 
 
 static void
-ngx_zookeeper_register_callback(ngx_event_t *ev)
+ngx_zookeeper_monitor(ngx_event_t *ev)
 {
     ngx_http_zookeeper_lua_main_conf_t  *zmcf;
     ngx_zoo_node_t                      *nodes;
@@ -702,6 +702,9 @@ ngx_zookeeper_register_callback(ngx_event_t *ev)
 
         initialize(ngx_cycle);
     }
+
+    if (ngx_worker != 0)
+        goto settimer;
 
     if (zmcf->nodes->nelts == 0)
         goto settimer;
@@ -868,9 +871,6 @@ ngx_zookeeper_lua_init_worker(ngx_cycle_t *cycle)
                   zmcf->init_flags == ZOO_READONLY ? "ro" : "rw");
 
     initialize(cycle);
-
-    if (ngx_worker != 0)
-        return NGX_OK;
 
     zmcf->ev.log = cycle->log;
 
