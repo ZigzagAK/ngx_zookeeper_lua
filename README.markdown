@@ -70,7 +70,7 @@ http {
   zookeeper                127.0.0.1:2181;
   zookeeper_log_level      debug;
   zookeeper_recv_timeout   5000;
-  zookeeper_ethemeral_node /services/nginx 127.0.0.1 "nginx";
+  zookeeper_ephemeral_node /services/nginx 127.0.0.1 "nginx";
 
   lua_shared_dict config    64k;
   lua_shared_dict zoo_cache 10m;
@@ -177,12 +177,12 @@ http {
     listen 8001;
 
     location /a {
-      zookeeper_ethemeral_node /services/nginx/8001/a 127.0.0.1:8001;
+      zookeeper_ephemeral_node /services/nginx/8001/a 127.0.0.1:8001;
       return 200 '8001:a';
     }
 
     location /b {
-      zookeeper_ethemeral_node /services/nginx/8001/b 127.0.0.1:8001;
+      zookeeper_ephemeral_node /services/nginx/8001/b 127.0.0.1:8001;
       return 200 '8001:b';
     }
   }
@@ -358,13 +358,13 @@ zookeeper_node
 
 Create persistent Zookeeper node.
 
-zookeeper_ethemeral_node
+zookeeper_ephemeral_node
 --------------
-* **syntax**: `zookeeper_ethemeral_node <path/to/instances> <value> [data]`
+* **syntax**: `zookeeper_ephemeral_node <path/to/instances> <value> [data]`
 * **default**: `none`
 * **context**: `http,server,location`
 
-Register nginx in Zookeeper ethemeral node.
+Register nginx in Zookeeper ephemeral node.
 
 zookeeper_register_port
 --------------
@@ -372,7 +372,7 @@ zookeeper_register_port
 * **default**: `none`
 * **context**: `server`
 
-Register nginx in Zookeeper ethemeral node with host_IPv4:port.
+Register nginx in Zookeeper ephemeral node with host_IPv4:port.
 
 [Back to TOC](#table-of-contents)
 

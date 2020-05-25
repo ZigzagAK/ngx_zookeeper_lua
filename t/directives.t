@@ -68,7 +68,7 @@ data true
       ngx.shared.config:set("zoo.cache.path.ttl", "{}")
     }
 --- config
-    zookeeper_ethemeral_node /test node data;
+    zookeeper_ephemeral_node /test node data;
     location /test {
         content_by_lua_block {
           local zoo = require "zoo"

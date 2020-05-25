@@ -56,7 +56,7 @@ ngx_http_zookeeper_lua_register_port(ngx_conf_t *cf, ngx_command_t *cmd,
 
 
 static char *
-ngx_http_zookeeper_node_ethemeral(ngx_conf_t *cf, void *post, void *data);
+ngx_http_zookeeper_node_ephemeral(ngx_conf_t *cf, void *post, void *data);
 
 
 static ngx_conf_num_bounds_t  ngx_http_zookeeper_check_timeout = {
@@ -65,8 +65,8 @@ static ngx_conf_num_bounds_t  ngx_http_zookeeper_check_timeout = {
 };
 
 
-static ngx_conf_post_t  ngx_http_zookeeper_ethemeral = {
-    ngx_http_zookeeper_node_ethemeral
+static ngx_conf_post_t  ngx_http_zookeeper_ephemeral = {
+    ngx_http_zookeeper_node_ephemeral
 };
 
 
@@ -132,7 +132,15 @@ static ngx_command_t ngx_http_zookeeper_lua_commands[] = {
       ngx_http_zookeeper_lua_node,
       0,
       0,
-      &ngx_http_zookeeper_ethemeral },
+      &ngx_http_zookeeper_ephemeral },
+
+    { ngx_string("zookeeper_ephemeral_node"),
+      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|
+      NGX_CONF_TAKE2|NGX_CONF_TAKE3,
+      ngx_http_zookeeper_lua_node,
+      0,
+      0,
+      &ngx_http_zookeeper_ephemeral },
 
     { ngx_string("zookeeper_node"),
       NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|
@@ -194,7 +202,7 @@ typedef struct {
     char         *node;
     char         *data;
     int           epoch;
-    ngx_flag_t    ethemeral;
+    ngx_flag_t    ephemeral;
     const char   *fmt;
 } ngx_zoo_node_t;
 
@@ -425,7 +433,7 @@ ngx_http_zookeeper_lua_node(ngx_conf_t *cf, ngx_command_t *cmd,
         return NGX_CONF_OK;
 
     node->epoch = 0;
-    node->ethemeral = 0;
+    node->ephemeral = 0;
     node->fmt = "Node has been created: %s";
 
     if (cf->args->nelts == 4) {
@@ -450,12 +458,12 @@ ngx_http_zookeeper_lua_node(ngx_conf_t *cf, ngx_command_t *cmd,
 
 
 static char *
-ngx_http_zookeeper_node_ethemeral(ngx_conf_t *cf, void *post, void *data)
+ngx_http_zookeeper_node_ephemeral(ngx_conf_t *cf, void *post, void *data)
 {
     ngx_zoo_node_t  *node = data;
 
-    node->ethemeral = 1;
-    node->fmt = "Ethemeral node has been created: %s";
+    node->ephemeral = 1;
+    node->fmt = "Ephemeral node has been created: %s";
 
     return NGX_CONF_OK;
 }
@@ -492,7 +500,7 @@ ngx_http_zookeeper_lua_register_port(ngx_conf_t *cf, ngx_command_t *cmd,
             continue;
 
         node->epoch = 0;
-        node->ethemeral = 1;
+        node->ephemeral = 1;
         node->fmt = "Nginx has been registered, instance: %s";
 
         if (cf->args->nelts == 4) {
@@ -659,7 +667,7 @@ ngx_zookeeper_register_ready(int rc, const char *value, const void *data)
 
         ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
                       "Zookeeper can't create %s node %s: %s",
-                      node->ethemeral ? "ethemeral" : "regular",
+                      node->ephemeral ? "ephemeral" : "regular",
                       node->node, ngx_zerr(rc));
     } else {
 
@@ -732,13 +740,13 @@ ngx_zookeeper_monitor(ngx_event_t *ev)
                 }
             }
 
-            if (nodes[i].ethemeral)
+            if (nodes[i].ephemeral)
                 zoo_adelete(zmcf->zoo.handle, nodes[i].node, -1,
                             ngx_zookeeper_delete_ready, NULL);
 
             rc = zoo_acreate(zmcf->zoo.handle, nodes[i].node, nodes[i].data,
                 strlen(nodes[i].data), &ZOO_OPEN_ACL_UNSAFE,
-                nodes[i].ethemeral ? ZOO_EPHEMERAL : 0,
+                nodes[i].ephemeral ? ZOO_EPHEMERAL : 0,
                 ngx_zookeeper_register_ready, &nodes[i]);
 
             if (rc != ZOK)
@@ -1069,15 +1077,21 @@ struct datatype_s
 };
 typedef struct datatype_s datatype_t;
 
+struct datatype_lua_s
+{
+    datatype_t  *inner;
+};
+typedef struct datatype_lua_s datatype_lua_t;
+
 
 static void
-dereference(datatype_t *data, ngx_atomic_int_t n)
+dereference(datatype_t *data)
 {
-    if (data->pool && ngx_atomic_fetch_add(&data->refs, -n) <= n) {
-
+//  ngx_log_error(NGX_LOG_INFO, ngx_cycle->log, 0, "deref: 0x%p, refs=%l",
+//                data, data->refs);
+    if (1 == ngx_atomic_fetch_add(&data->refs, -1)) {
+//      ngx_log_error(NGX_LOG_INFO, ngx_cycle->log, 0, "dealloc: 0x%p", data);
         ngx_destroy_pool(data->pool);
-
-        data->pool = NULL;
     }
 }
 
@@ -1085,7 +1099,10 @@ dereference(datatype_t *data, ngx_atomic_int_t n)
 static int
 delete(lua_State *L)
 {
-    dereference(luaL_checkudata(L, 1, "ngx_zoo"), 2);
+    datatype_lua_t  *ud = luaL_checkudata(L, 1, "ngx_zoo");
+//  ngx_log_error(NGX_LOG_INFO, ngx_cycle->log, 0, "lua delete: 0x%p",
+//                ud->inner);
+    dereference(ud->inner);
     return 0;
 }
 
@@ -1093,26 +1110,32 @@ delete(lua_State *L)
 static datatype_t *
 new(lua_State *L)
 {
-    datatype_t  *data;
-    ngx_pool_t  *pool;
+    datatype_lua_t  *ud;
+    ngx_pool_t      *pool;
 
-    data = (datatype_t *) lua_newuserdata(L, sizeof(datatype_t));
-    if (data == NULL)
+    ud = (datatype_lua_t *) lua_newuserdata(L, sizeof(datatype_lua_t));
+    if (ud == NULL)
         return NULL;
-
-    ngx_memzero(data, sizeof(datatype_t));
 
     pool = ngx_create_pool(2048, ngx_cycle->log);
     if (pool == NULL)
         return NULL;
 
-    data->refs = 2;
-    data->pool = pool;
+    ud->inner = ngx_pcalloc(pool, sizeof(datatype_t));
+    if (ud->inner == NULL) {
+        ngx_destroy_pool(pool);
+        return NULL;
+    }
+
+    ud->inner->refs = 2;
+    ud->inner->pool = pool;
 
     luaL_getmetatable(L, "ngx_zoo");
     lua_setmetatable(L, -2);
 
-    return data;
+//  ngx_log_error(NGX_LOG_INFO, ngx_cycle->log, 0, "alloc: 0x%p", ud->inner);
+
+    return ud->inner;
 }
 
 
@@ -1184,9 +1207,10 @@ ngx_zookeeper_push_stat(lua_State *L, const struct Stat *stat)
 static int
 ngx_zookeeper_check_completition(lua_State *L)
 {
-    datatype_t   *data;
-    zookeeper_t  *zoo = ngx_http_zmcf();
-    int           n = 3;
+    datatype_lua_t   *ud;
+    datatype_t       *data;
+    zookeeper_t      *zoo = ngx_http_zmcf();
+    int               n = 3;
 
     if (lua_gettop(L) != 1)
         return ngx_zookeeper_lua_error(L, "check_completition",
@@ -1196,18 +1220,18 @@ ngx_zookeeper_check_completition(lua_State *L)
         return ngx_zookeeper_lua_error(L, "check_completition",
                                        "argument must be a userdata");
 
-    data = (datatype_t *) luaL_checkudata(L, 1, "ngx_zoo");
-    if (data == NULL)
+    ud = (datatype_lua_t *) luaL_checkudata(L, 1, "ngx_zoo");
+    if (ud == NULL)
         return ngx_zookeeper_lua_error(L, "check_completition",
-                                      "argument is not a zookeeper type");
+                                       "argument is not a zookeeper type");
+
+    data = ud->inner;
 
     ngx_rwlock_wlock(&data->lock);
 
     if (zoo->handle == NULL) {
 
         ngx_rwlock_unlock(&data->lock);
-
-        dereference(data, 1);
 
         return ngx_zookeeper_lua_error(L, "check_completition",
                                        "zookeeper handle is nil");
@@ -1216,8 +1240,6 @@ ngx_zookeeper_check_completition(lua_State *L)
     if (!zoo->connected) {
 
         ngx_rwlock_unlock(&data->lock);
-
-        dereference(data, 1);
 
         return ngx_zookeeper_lua_error(L, "check_completition",
                                        "not connected");
@@ -1257,8 +1279,6 @@ ngx_zookeeper_check_completition(lua_State *L)
     lua_pushlstring(L, data->error, strlen(data->error));
 
 done:
-
-    dereference(data, 1);
 
     return n;
 }
@@ -1332,6 +1352,9 @@ ngx_zookeeper_string_ready(int rc, const char *value, int value_len,
 
     ngx_rwlock_wlock(&data->lock);
 
+    if (data->refs == 1)
+        goto end;
+
     if (rc != ZOK) {
 
         data->error = ngx_zerr(rc);
@@ -1373,7 +1396,7 @@ end:
 
     ngx_rwlock_unlock(&data->lock);
 
-    dereference(data, 1);
+    dereference(data);
 }
 
 
@@ -1390,6 +1413,9 @@ ngx_zookeeper_void_ready(int rc, const void *p)
     if (data == NULL)
         return;
 
+    if (data->refs == 1)
+        goto end;
+
     ngx_rwlock_wlock(&data->lock);
 
     if (rc != ZOK)
@@ -1399,7 +1425,9 @@ ngx_zookeeper_void_ready(int rc, const void *p)
 
     ngx_rwlock_unlock(&data->lock);
 
-    dereference(data, 1);
+end:
+
+    dereference(data);
 }
 
 //------------------------------------------------------------------------------
@@ -1451,7 +1479,7 @@ ngx_zookeeper_aget(lua_State *L)
     if (rc == ZOK)
         return 1;
 
-    dereference(data, 2);
+    dereference(data);
 
     /* pop userdata */
     lua_pop(L, 1);
@@ -1495,12 +1523,15 @@ ngx_zookeeper_get_childrens_ready(int rc, const struct String_vector *strings,
 
     ngx_rwlock_wlock(&data->lock);
 
+    if (data->refs == 1)
+        goto end;
+
     if (rc != ZOK) {
 
         data->error = ngx_zerr(rc);
         goto end;
     }
-    
+
     arr = ngx_array_create(data->pool, strings->count, sizeof(str_t));
     if (arr == NULL)
         goto nomem;
@@ -1534,7 +1565,7 @@ end:
 
     ngx_rwlock_unlock(&data->lock);
 
-    dereference(data, 1);
+    dereference(data);
 }
 
 
@@ -1571,7 +1602,7 @@ ngx_zookeeper_aget_childrens(lua_State *L)
     if (rc == ZOK)
         return 1;
 
-    dereference(data, 2);
+    dereference(data);
 
     /* pop userdata */
     lua_pop(L, 1);
@@ -1598,6 +1629,9 @@ ngx_zookeeper_set_ready(int rc, const struct Stat *stat, const void *p)
     if (data == NULL)
         return;
 
+    if (data->refs == 1)
+        goto end;
+
     ngx_rwlock_wlock(&data->lock);
 
     if (rc == ZOK) {
@@ -1612,7 +1646,9 @@ ngx_zookeeper_set_ready(int rc, const struct Stat *stat, const void *p)
 
     ngx_rwlock_unlock(&data->lock);
 
-    dereference(data, 1);
+end:
+    
+    dereference(data);
 }
 
 
@@ -1658,7 +1694,7 @@ ngx_zookeeper_aset(lua_State *L)
         return 1;
     }
 
-    dereference(data, 2);
+    dereference(data);
 
     /* pop userdata */
     lua_pop(L, 1);
@@ -1722,7 +1758,7 @@ ngx_zookeeper_acreate(lua_State *L)
     if (rc == ZOK)
         return 1;
 
-    dereference(data, 2);
+    dereference(data);
 
     /* pop userdata */
     lua_pop(L, 1);
@@ -1781,7 +1817,7 @@ ngx_zookeeper_adelete(lua_State *L)
     if (rc == ZOK)
         return 1;
 
-    dereference(data, 2);
+    dereference(data);
 
     /* pop userdata */
     lua_pop(L, 1);
@@ -1861,8 +1897,11 @@ ngx_zookeeper_tree_childrens_ready(int rc, const struct String_vector *strings,
 
     ngx_rwlock_wlock(&data->lock);
 
-    if (rc != ZOK)
+    if (data->refs == 1)
         goto end;
+
+    if (rc != ZOK)
+        goto err;
 
     parent->childrens = ngx_array_create(data->pool,
         strings->count, sizeof(ngx_zoo_tree_node_t));
@@ -1924,7 +1963,7 @@ end:
     ngx_rwlock_unlock(&data->lock);
 
     if (data->completed)
-        dereference(data, 1);
+        dereference(data);
 }
 
 
@@ -1941,6 +1980,9 @@ ngx_zookeeper_tree_get_ready(int rc, const char *value, int value_len,
     data = node->data;
 
     ngx_rwlock_wlock(&data->lock);
+
+    if (data->refs == 1)
+        goto end;
 
     if (rc != ZOK)
         goto err;
@@ -1994,7 +2036,7 @@ end:
     ngx_rwlock_unlock(&data->lock);
 
     if (data->completed)
-        dereference(data, 1);
+        dereference(data);
 }
 
 
@@ -2047,7 +2089,7 @@ ngx_zookeeper_atree(lua_State *L)
     if (rc == ZOK)
         return 1;
 
-    dereference(data, 2);
+    dereference(data);
 
     /* pop userdata */
     lua_pop(L, 1);
@@ -2274,7 +2316,7 @@ ngx_zookeeper_awatch(lua_State *L)
 
     ngx_rwlock_unlock(&zmcf->lock);
 
-    dereference(data, 2);
+    dereference(data);
 
     /* pop userdata */
     lua_pop(L, 1);
@@ -2287,7 +2329,7 @@ nomem:
 
     if (data != NULL) {
 
-        dereference(data, 2);
+        dereference(data);
 
         /* pop userdata */
         lua_pop(L, 1);
@@ -2305,6 +2347,9 @@ ngx_zookeeper_unwatch_ready(int rc, const void *p)
     if (data == NULL)
         return;
 
+    if (data->refs == 1)
+        goto end;
+
     ngx_rwlock_wlock(&data->lock);
 
     if (rc != ZOK && rc != ZUNIMPLEMENTED)
@@ -2314,7 +2359,9 @@ ngx_zookeeper_unwatch_ready(int rc, const void *p)
 
     ngx_rwlock_unlock(&data->lock);
 
-    dereference(data, 1);
+end:
+
+    dereference(data);
 }
 
 
@@ -2380,7 +2427,7 @@ ngx_zookeeper_aunwatch(lua_State *L)
 
         if (rc == ZNOWATCHER) {
 
-            dereference(data, 1);
+            dereference(data);
             data->completed = 1;
         }
 
@@ -2390,7 +2437,7 @@ ngx_zookeeper_aunwatch(lua_State *L)
 
     ngx_rwlock_unlock(&zmcf->lock);
 
-    dereference(data, 2);
+    dereference(data);
 
     /* pop userdata */
     lua_pop(L, 1);

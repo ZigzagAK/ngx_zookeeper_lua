@@ -209,7 +209,7 @@ function build_zoo() {
   echo "Build Zookeeper" | tee -a $BUILD_LOG
   cd apache-zookeeper-$ZOO_VERSION/zookeeper-client/zookeeper-client-c
   autoreconf -if >> $BUILD_LOG 2>>$ERR_LOG
-  ./configure --without-cppunit --prefix="$ZOO_PREFIX" --enable-shared --disable-static --libdir "$ZOO_PREFIX/lib" >> $BUILD_LOG 2>>$ERR_LOG
+  ./configure CFLAGS="-Wno-error=stringop-truncation -Wno-error=format-overflow=" --without-cppunit --prefix="$ZOO_PREFIX" --enable-shared --disable-static --libdir "$ZOO_PREFIX/lib" >> $BUILD_LOG 2>>$ERR_LOG
   make -j 8 >> $BUILD_LOG 2>>$ERR_LOG
   r=$?
   if [ $r -ne 0 ]; then
