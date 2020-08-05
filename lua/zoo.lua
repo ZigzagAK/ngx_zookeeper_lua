@@ -64,6 +64,7 @@ local _M = {
 
 local errors
 local WatcherType
+local set
 local create
 local delete
 local delete_recursive
@@ -343,7 +344,7 @@ function _M.create(znode, value, flags)
   return data and (data[1] or "") or nil, err
 end
 
-function _M.create_path(znode)
+function _M.create_path(znode, val, flags)
   local path = "/"
 
   local data, err = zoo_call(function()
@@ -351,6 +352,9 @@ function _M.create_path(znode)
   end)
 
   if data then
+    if val and data ~= val then
+      return set(znode, val)
+    end
     return true
   end
 
@@ -360,11 +364,13 @@ function _M.create_path(znode)
 
   for p in znode:gmatch("/([^/]+)")
   do
-    local ok, err = create(path .. p)
+    local part = path .. p
+    local is_last = znode == part
+    local ok, err = create(part, is_last and val, is_last and flags)
     if not ok and err ~= errors.ZOO_NODEEXISTS then
       return nil, err
     end
-    path = path .. p .. "/"
+    path = part .. "/"
   end
 
   return true
@@ -592,6 +598,7 @@ end
 do
   errors           = _M.errors
   WatcherType      = _M.WatcherType
+  set              = _M.set
   create           = _M.create
   delete           = _M.delete
   delete_recursive = _M.delete_recursive
