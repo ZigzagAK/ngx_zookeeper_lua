@@ -56,6 +56,11 @@ ngx_http_zookeeper_lua_register_port(ngx_conf_t *cf, ngx_command_t *cmd,
 
 
 static char *
+ngx_http_zookeeper_lua_register(ngx_conf_t *cf, ngx_command_t *cmd,
+    void *conf);
+
+
+static char *
 ngx_http_zookeeper_node_ephemeral(ngx_conf_t *cf, void *post, void *data);
 
 
@@ -153,6 +158,13 @@ static ngx_command_t ngx_http_zookeeper_lua_commands[] = {
     { ngx_string("zookeeper_register_port"),
       NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE2|NGX_CONF_TAKE3,
       ngx_http_zookeeper_lua_register_port,
+      0,
+      0,
+      NULL },
+
+    { ngx_string("zookeeper_register"),
+      NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE1|NGX_CONF_TAKE2,
+      ngx_http_zookeeper_lua_register,
       0,
       0,
       NULL },
@@ -389,7 +401,7 @@ cstr(ngx_pool_t *pool, ngx_str_t s)
         return NULL;
 
     ngx_memcpy(cs, s.data, s.len);
-    
+
     return (char *) cs;
 }
 
@@ -506,6 +518,51 @@ ngx_http_zookeeper_lua_register_port(ngx_conf_t *cf, ngx_command_t *cmd,
         if (cf->args->nelts == 4) {
 
             node->data = cstr(cf->pool, values[3]);
+            if (node->data == NULL)
+                return NGX_CONF_ERROR;
+
+        } else
+            node->data = "";
+
+        zmcf->nodes->nelts++;
+    }
+
+    return NGX_CONF_OK;
+}
+
+
+static char *
+ngx_http_zookeeper_lua_register(ngx_conf_t *cf, ngx_command_t *cmd,
+    void *conf)
+{
+    ngx_http_zookeeper_lua_main_conf_t  *zmcf = conf;
+    ngx_str_t                           *values = cf->args->elts;
+    ngx_zoo_node_t                      *node;
+    ngx_uint_t                           j;
+
+    for (j = 0; j < zmcf->naddrs; j++) {
+
+        node = ngx_array_push(zmcf->nodes);
+        zmcf->nodes->nelts--;
+        ngx_memzero(node, sizeof(ngx_zoo_node_t));
+
+        node->path = path_parse(cf->pool, values[1]);
+        node->value = cstr(cf->pool, zmcf->addrs[j].name);
+
+        node->node = concat(cf->pool, values[1], zmcf->addrs[j].name, '/');
+        if (node->node == NULL)
+            return NGX_CONF_ERROR;
+
+        if (exists_node(zmcf, node->node))
+            continue;
+
+        node->epoch = 0;
+        node->ephemeral = 1;
+        node->fmt = "Nginx has been registered, instance: %s";
+
+        if (cf->args->nelts == 3) {
+
+            node->data = cstr(cf->pool, values[2]);
             if (node->data == NULL)
                 return NGX_CONF_ERROR;
 
