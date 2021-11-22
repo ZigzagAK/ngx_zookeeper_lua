@@ -16,7 +16,7 @@ end
 local timeout = zoo.timeout()
 
 local _M = {
-  _VERSION = "2.5.2",
+  _VERSION = "2.7.1",
 
   errors = {
     ZOO_OK = "OK",
@@ -151,14 +151,24 @@ local function json_pretty_encode(dt, lf, id, ac)
   return tconcat(r)
 end
 
-local function get_ttl(znode)
-  for _, z in ipairs(zoo_cache_path_ttl)
-  do
-    if znode:match(z.path) then
-      return z.ttl
+local get_ttl
+get_ttl = function(znode)
+  zoo_cache_ttl = CONFIG:get("zoo.cache.ttl") or 60
+  zoo_cache_path_ttl = json_decode(CONFIG:get("zoo.cache.path.ttl") or "{}")
+  table.sort(zoo_cache_path_ttl, function(l, r) return #l.path > #r.path end)
+  debug(function()
+    return "zoo.cache.ttl=", zoo_cache_ttl, "; zoo.cache.path.ttl: ", zoo_cache_path_ttl
+  end)
+  get_ttl = function (znode)
+    for _, z in ipairs(zoo_cache_path_ttl)
+    do
+      if z.path == znode:sub(1, #z.path) or znode:match(z.path) then
+        return z.ttl
+      end
     end
+    return zoo_cache_ttl
   end
-  return zoo_cache_ttl
+  return get_ttl(znode)
 end
 
 local function get_expires()
@@ -387,7 +397,7 @@ function _M.delete(znode)
 end
 
 function _M.delete_recursive(znode)
-  local nodes, err = childrens(znode)
+  local nodes, err = childrens(znode, true)
   if not nodes then
     return nil, err
   end
