@@ -14,9 +14,10 @@ local function blocking_sleep(sec)
 end
 
 local timeout = zoo.timeout()
+local operation_timeout
 
 local _M = {
-  _VERSION = "2.7.1",
+  _VERSION = "2.7.2",
 
   errors = {
     ZOO_OK = "OK",
@@ -171,9 +172,9 @@ get_ttl = function(znode)
   return get_ttl(znode)
 end
 
-local function get_expires()
+local function get_expires(op_timeout)
   update_time()
-  return now() * 1000 + timeout
+  return now() * 1000 + (op_timeout or timeout)
 end
 
 local function suspend(sec)
@@ -189,8 +190,10 @@ local function zoo_call(fun)
     return nil, err
   end
 
-  local expires = get_expires()
+  local expires = get_expires(operation_timeout)
   local completed, value, stat
+
+  operation_timeout = nil
 
   repeat
     suspend(0.001)
