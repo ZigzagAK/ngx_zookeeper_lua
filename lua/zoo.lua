@@ -215,6 +215,10 @@ local function zoo_call(fun)
   return nil, errors.ZOO_TIMEOUT
 end
 
+function _M.set_operation_timeout(op_timeout)
+  operation_timeout = op_timeout
+end
+
 function _M.clear_in_cache(znode)
   CACHE:delete("$c:" .. znode)
   CACHE:delete("$v:" .. znode)
