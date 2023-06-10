@@ -137,4 +137,3 @@ data true
     GET /test
 --- response_body_like
 8888 data true
-

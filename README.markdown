@@ -374,6 +374,14 @@ zookeeper_register_port
 
 Register nginx in Zookeeper ephemeral node with host_IPv4:port.
 
+zookeeper_inactive_time
+--------------
+* **syntax**: `zookeeper_inactive_time <seconds>`
+* **default**: `none`
+* **context**: `http`
+
+Disconnect from zookeeper after inactive period.
+
 [Back to TOC](#table-of-contents)
 
 Methods
