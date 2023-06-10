@@ -158,7 +158,7 @@ get_ttl = function(znode)
   zoo_cache_path_ttl = json_decode(CONFIG:get("zoo.cache.path.ttl") or "{}")
   table.sort(zoo_cache_path_ttl, function(l, r) return #l.path > #r.path end)
   debug(function()
-    return "zoo.cache.ttl=", zoo_cache_ttl, "; zoo.cache.path.ttl: ", zoo_cache_path_ttl
+    return "zoo.cache.ttl=", zoo_cache_ttl, "; zoo.cache.path.ttl: ", json_encode(zoo_cache_path_ttl)
   end)
   get_ttl = function (znode)
     for _, z in ipairs(zoo_cache_path_ttl)
