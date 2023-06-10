@@ -19,6 +19,7 @@ __DATA__
     zookeeper                 127.0.0.1:$TEST_NGINX_ZOOKEEPER_PORT;
     zookeeper_log_level       debug;
     zookeeper_recv_timeout    60000;
+    zookeeper_inactive_time   1;
 
     lua_shared_dict config    64k;
     lua_shared_dict zoo_cache 10m;
@@ -31,7 +32,6 @@ __DATA__
     location /test {
         content_by_lua_block {
           local zoo = require "zoo"
-          ngx.sleep(0.5)
 
           zoo.delete_recursive(ngx.var.arg_znode)
 
@@ -66,6 +66,7 @@ nil Znode does not exist
     zookeeper                 127.0.0.1:$TEST_NGINX_ZOOKEEPER_PORT;
     zookeeper_log_level       debug;
     zookeeper_recv_timeout    60000;
+    zookeeper_inactive_time   1;
 
     lua_shared_dict config    64k;
     lua_shared_dict zoo_cache 10m;
@@ -78,8 +79,6 @@ nil Znode does not exist
     location /test {
         content_by_lua_block {
           local zoo = require "zoo"
-          ngx.sleep(0.5)
-
           local ok, err = zoo.create(ngx.var.arg_znode)
           ngx.say(ok, " ", err)
         }
@@ -99,6 +98,7 @@ nil Znode does not exist
     zookeeper                 127.0.0.1:$TEST_NGINX_ZOOKEEPER_PORT;
     zookeeper_log_level       debug;
     zookeeper_recv_timeout    60000;
+    zookeeper_inactive_time   1;
 
     lua_shared_dict config    64k;
     lua_shared_dict zoo_cache 10m;
@@ -111,7 +111,6 @@ nil Znode does not exist
     location /test {
         content_by_lua_block {
           local zoo = require "zoo"
-          ngx.sleep(0.5)
 
           zoo.delete_recursive(ngx.var.arg_znode)
 
@@ -144,6 +143,7 @@ test nil
     zookeeper                 127.0.0.1:$TEST_NGINX_ZOOKEEPER_PORT;
     zookeeper_log_level       debug;
     zookeeper_recv_timeout    60000;
+    zookeeper_inactive_time   1;
 
     lua_shared_dict config    64k;
     lua_shared_dict zoo_cache 10m;
@@ -156,7 +156,6 @@ test nil
     location /test {
         content_by_lua_block {
           local zoo = require "zoo"
-          ngx.sleep(0.5)
 
           zoo.delete_recursive(ngx.var.arg_znode)
 
@@ -197,6 +196,7 @@ nil Znode does not exist
     zookeeper                 127.0.0.1:$TEST_NGINX_ZOOKEEPER_PORT;
     zookeeper_log_level       debug;
     zookeeper_recv_timeout    60000;
+    zookeeper_inactive_time   1;
 
     lua_shared_dict config    64k;
     lua_shared_dict zoo_cache 10m;
@@ -209,7 +209,6 @@ nil Znode does not exist
     location /test {
         content_by_lua_block {
           local zoo = require "zoo"
-          ngx.sleep(0.5)
 
           zoo.delete_recursive(ngx.var.arg_znode)
 
@@ -258,6 +257,7 @@ true nil
     zookeeper                 127.0.0.1:$TEST_NGINX_ZOOKEEPER_PORT;
     zookeeper_log_level       debug;
     zookeeper_recv_timeout    60000;
+    zookeeper_inactive_time   1;
 
     lua_shared_dict config    64k;
     lua_shared_dict zoo_cache 10m;
@@ -271,8 +271,6 @@ true nil
         content_by_lua_block {
           local zoo = require "zoo"
           local cjson = require "cjson"
-
-          ngx.sleep(0.5)
 
           zoo.delete_recursive(ngx.var.arg_znode)
 
@@ -313,6 +311,7 @@ true nil
     zookeeper                 127.0.0.1:$TEST_NGINX_ZOOKEEPER_PORT;
     zookeeper_log_level       debug;
     zookeeper_recv_timeout    60000;
+    zookeeper_inactive_time   1;
 
     lua_shared_dict config    64k;
     lua_shared_dict zoo_cache 10m;
@@ -325,7 +324,6 @@ true nil
     location /test {
         content_by_lua_block {
           local zoo = require "zoo"
-          ngx.sleep(0.5)
 
           zoo.delete_recursive(ngx.var.arg_znode)
 
@@ -370,6 +368,7 @@ test2 nil
     zookeeper                 127.0.0.1:$TEST_NGINX_ZOOKEEPER_PORT;
     zookeeper_log_level       debug;
     zookeeper_recv_timeout    60000;
+    zookeeper_inactive_time   1;
 
     lua_shared_dict config    64k;
     lua_shared_dict zoo_cache 10m;
@@ -382,7 +381,6 @@ test2 nil
     location /test {
         content_by_lua_block {
           local zoo = require "zoo"
-          ngx.sleep(0.5)
 
           local ok, err = zoo.create_path(ngx.var.arg_znode)
           ngx.say(ok, " ", err)

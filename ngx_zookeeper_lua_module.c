@@ -786,6 +786,7 @@ ngx_zookeeper_monitor(ngx_event_t *ev)
 
     if (zmcf->inactive_time != NGX_CONF_UNSET /* suspend after inactive time */
         && zmcf->nodes->nelts == 0 /* nothing to register */
+        && zmcf->watched->nelts == 0 /* nothing to watch */
         && zmcf->zoo.handle)
     {
         if (zmcf->zoo.last_op + zmcf->inactive_time < ngx_time()) {

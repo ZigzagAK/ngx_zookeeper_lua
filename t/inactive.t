@@ -34,6 +34,8 @@ __DATA__
         content_by_lua_block {
           local zoo = require "zoo"
 
+          zoo.delete_recursive("/test")
+
           for i=1,5 do
             local ok, err = zoo.create("/test", tostring(i))
             if not ok then
@@ -41,7 +43,7 @@ __DATA__
               return
             end
 
-            ngx.sleep(1.5)
+            ngx.sleep(2)
 
             local val, _, err = zoo.get("/test")
             if not val then
@@ -53,11 +55,11 @@ __DATA__
 
             zoo.delete_recursive("/test")
 
-            ngx.sleep(1.5)
+            ngx.sleep(2)
           end
         }
     }
---- timeout: 20
+--- timeout: 25
 --- request
     GET /test
 --- response_body_like

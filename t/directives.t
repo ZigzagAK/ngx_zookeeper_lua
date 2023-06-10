@@ -99,6 +99,7 @@ data true
     zookeeper                 127.0.0.1:$TEST_NGINX_ZOOKEEPER_PORT;
     zookeeper_log_level       debug;
     zookeeper_recv_timeout    60000;
+    zookeeper_inactive_time   1;
 
     lua_shared_dict config    64k;
     lua_shared_dict zoo_cache 10m;
