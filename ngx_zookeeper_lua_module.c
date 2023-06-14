@@ -2295,6 +2295,7 @@ ngx_zookeeper_watch(zhandle_t *zh, int type,
 {
     ngx_int_t                            index = (ngx_int_t) ctxp;
     ngx_http_zookeeper_lua_main_conf_t  *zmcf;
+    watched_t                           *w;
 
     zmcf = ngx_http_cycle_get_module_main_conf(ngx_cycle,
                                                ngx_zookeeper_lua_module);
@@ -2303,9 +2304,11 @@ ngx_zookeeper_watch(zhandle_t *zh, int type,
         || type == ZOO_CHANGED_EVENT
         || type == ZOO_DELETED_EVENT) {
 
-        ngx_rwlock_rlock(&zmcf->lock);
+        ngx_rwlock_wlock(&zmcf->lock);
 
-        (((watched_t *) zmcf->watched->elts) + index)->changed = 1;
+        w = ((watched_t *) zmcf->watched->elts) + index;
+        if (w->path.data && w->watch_type == type && ngx_strncmp(path, w->path.data, w->path.len) == 0)
+            w->changed = 1;
 
         ngx_rwlock_unlock(&zmcf->lock);
     }
@@ -2334,7 +2337,7 @@ ngx_zookeeper_watch_ready(int rc, watch_ready_context_t *ctx)
     zmcf = ngx_http_cycle_get_module_main_conf(ngx_cycle,
                                                ngx_zookeeper_lua_module);
 
-    ngx_rwlock_rlock(&zmcf->lock);
+    ngx_rwlock_wlock(&zmcf->lock);
 
     w = zmcf->watched->elts;
 
@@ -2641,7 +2644,7 @@ ngx_zookeeper_changed(lua_State *L)
     ngx_http_zookeeper_lua_main_conf_t  *zmcf;
     watched_t                           *w;
     ngx_uint_t                           j;
-    int                                  i = 1;
+    int                                  i = 1, used_slots = 0;
 
     zmcf = ngx_http_cycle_get_module_main_conf(ngx_cycle,
                                                ngx_zookeeper_lua_module);
@@ -2653,11 +2656,14 @@ ngx_zookeeper_changed(lua_State *L)
 
     lua_newtable(L);
 
-    ngx_rwlock_rlock(&zmcf->lock);
+    ngx_rwlock_wlock(&zmcf->lock);
 
     for (j = 0; j < zmcf->watched->nelts; j++) {
 
-        if (!w[j].changed)
+        if (w[j].path.data)
+            used_slots++;
+
+        if (!w[j].changed || !w[j].path.data)
             continue;
 
         lua_newtable(L);
@@ -2672,6 +2678,9 @@ ngx_zookeeper_changed(lua_State *L)
 
         ngx_zookeeper_awatch_free_slot(w + j);
     }
+
+    if (used_slots == 0)
+        zmcf->watched->nelts = 0;
 
     ngx_rwlock_unlock(&zmcf->lock);
 
