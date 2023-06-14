@@ -561,7 +561,7 @@ function _M.watch(znode, watch_type, callback, ctx)
     end
 
     changed, err = zoo.changed()
- 
+
     if not changed then
       ngx_log(WARN, "watch: ", err)
       goto settimer
@@ -593,7 +593,11 @@ function _M.watch(znode, watch_type, callback, ctx)
 
 :: settimer ::
 
-    job = assert(ngx.timer.at(zoo_watch_interval, handler))
+    if next(watched) then
+      job = assert(ngx.timer.at(zoo_watch_interval, handler))
+    else
+      job = nil
+    end
   end
 
   job = assert(ngx.timer.at(zoo_watch_interval, handler))
