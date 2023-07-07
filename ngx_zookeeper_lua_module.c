@@ -607,7 +607,13 @@ ngx_http_zookeeper_lua_register(ngx_conf_t *cf, ngx_command_t *cmd,
 ngx_flag_t
 ngx_zookeeper_lua_connected()
 {
-    return ngx_http_zmcf()->connected != NGX_ERROR;
+    ngx_http_zookeeper_lua_main_conf_t  *zmcf;
+
+    zmcf = ngx_http_cycle_get_module_main_conf(ngx_cycle,
+                                               ngx_zookeeper_lua_module);
+
+    return zmcf->hosts.len != 0 /* not configured */ &&
+        (!zmcf->ev.timer_set /* suspended */ || (zmcf->zoo.handle && zmcf->zoo.connected != NGX_ERROR));
 }
 
 
@@ -1281,7 +1287,8 @@ ngx_zookeeper_connected(lua_State *L)
     if (lua_gettop(L))
         return ngx_zookeeper_lua_error(L, "connected", "no arguments expected");
 
-    lua_pushboolean(L, !zmcf->ev.timer_set /* suspended */ || (zmcf->zoo.handle && zmcf->zoo.connected != NGX_ERROR));
+    lua_pushboolean(L, zmcf->hosts.len != 0 /* not configured */ &&
+        (!zmcf->ev.timer_set /* suspended */ || (zmcf->zoo.handle && zmcf->zoo.connected != NGX_ERROR)));
 
     return 1;
 }
