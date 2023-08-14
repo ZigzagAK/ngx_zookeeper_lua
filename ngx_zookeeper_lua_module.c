@@ -229,6 +229,8 @@ typedef struct {
     int           epoch;
     ngx_flag_t    ephemeral;
     const char   *fmt;
+    const char   *update_fmt;
+    ngx_flag_t    may_be_updated;
     ngx_int_t     timestamp;
 } ngx_zoo_node_t;
 
@@ -475,7 +477,9 @@ ngx_http_zookeeper_lua_node(ngx_conf_t *cf, ngx_command_t *cmd,
 
     node->epoch = 0;
     node->ephemeral = 0;
-    node->fmt = "Node has been created: %s";
+    node->fmt = "Node has been created: %s = %s";
+    node->update_fmt = "Node has been updated: %s = %s";
+    node->may_be_updated = 1;
 
     if (cf->args->nelts == 4) {
 
@@ -504,7 +508,9 @@ ngx_http_zookeeper_node_ephemeral(ngx_conf_t *cf, void *post, void *data)
     ngx_zoo_node_t  *node = data;
 
     node->ephemeral = 1;
-    node->fmt = "Ephemeral node has been created: %s";
+    node->fmt = "Ephemeral node has been created: %s = %s";
+    node->update_fmt = "Ephemeral node has been updated: %s = %s";
+    node->may_be_updated = 1;
 
     return NGX_CONF_OK;
 }
@@ -542,7 +548,7 @@ ngx_http_zookeeper_lua_register_port(ngx_conf_t *cf, ngx_command_t *cmd,
 
         node->epoch = 0;
         node->ephemeral = 1;
-        node->fmt = "Nginx has been registered, instance: %s";
+        node->fmt = "Nginx has been registered, instance: %s = %s";
 
         if (cf->args->nelts >= 4) {
 
@@ -589,7 +595,7 @@ ngx_http_zookeeper_lua_register(ngx_conf_t *cf, ngx_command_t *cmd,
 
         node->epoch = 0;
         node->ephemeral = 1;
-        node->fmt = "Nginx has been registered, instance: %s";
+        node->fmt = "Nginx has been registered, instance: %s = %s";
 
         if (cf->args->nelts >= 3) {
 
@@ -740,23 +746,65 @@ ngx_zerr(int rc)
     return "Unknown";
 }
 
-
 static void
-ngx_zookeeper_register_ready(int rc, const char *value, const void *data)
+ngx_zookeeper_register_set_ready(int rc, const struct Stat *stat, const void *data)
 {
     ngx_zoo_node_t  *node = (ngx_zoo_node_t *) data;
 
+    if (rc == ZOK) {
+            
+        node->epoch = ngx_http_zmcf()->epoch;
+
+        ngx_log_error(NGX_LOG_INFO, ngx_cycle->log, 0,
+            node->update_fmt, node->node, node->data);
+
+        return;
+    }
+
+    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
+                  "Zookeeper can't create %s node %s: %s",
+                  node->ephemeral ? "ephemeral" : "regular",
+                  node->node, ngx_zerr(rc));
+}
+
+
+static void
+ngx_zookeeper_register_create_ready(int rc, const char *value, const void *data)
+{
+    ngx_zoo_node_t                      *node;
+    ngx_http_zookeeper_lua_main_conf_t  *zmcf;
+
+    node = (ngx_zoo_node_t *) data;
+
+    zmcf = ngx_http_cycle_get_module_main_conf(ngx_cycle,
+                                               ngx_zookeeper_lua_module);
+
     if (rc == ZOK || rc == ZNODEEXISTS) {
 
-        if (node != NULL) {
+        if (node == NULL)
+            return;
+
+        if (rc == ZOK) {
 
             node->epoch = ngx_http_zmcf()->epoch;
 
             ngx_log_error(NGX_LOG_INFO, ngx_cycle->log, 0,
-                node->fmt, node->node);
-        }
+                node->fmt, node->node, node->data);
 
-        return;
+            return;
+
+        } else if (node->may_be_updated) {
+
+            rc = zoo_aset(zmcf->zoo.handle, node->node, node->data,
+                strlen(node->data), -1, ngx_zookeeper_register_set_ready, node);
+
+            if (rc != ZOK)
+                ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
+                              "Zookeeper: error register instance: %s",
+                              ngx_zerr(rc));
+
+            return;
+        }
     }
 
     if (node != NULL) {
@@ -797,7 +845,7 @@ ngx_zookeeper_register_node(ngx_log_t *log, ngx_zoo_node_t *node)
     for (j = 0; j < node->path->nelts; ++j) {
 
         rc = zoo_acreate(zmcf->zoo.handle, path[j], "", 0,
-           &ZOO_OPEN_ACL_UNSAFE, 0, ngx_zookeeper_register_ready,
+           &ZOO_OPEN_ACL_UNSAFE, 0, ngx_zookeeper_register_create_ready,
             NULL);
 
         if (rc != ZOK) {
@@ -808,14 +856,10 @@ ngx_zookeeper_register_node(ngx_log_t *log, ngx_zoo_node_t *node)
         }
     }
 
-    if (node->ephemeral)
-        zoo_adelete(zmcf->zoo.handle, node->node, -1,
-                    ngx_zookeeper_delete_ready, NULL);
-
     rc = zoo_acreate(zmcf->zoo.handle, node->node, node->data,
         strlen(node->data), &ZOO_OPEN_ACL_UNSAFE,
         node->ephemeral ? ZOO_EPHEMERAL : 0,
-        ngx_zookeeper_register_ready, node);
+        ngx_zookeeper_register_create_ready, node);
 
     if (rc != ZOK)
         ngx_log_error(NGX_LOG_ERR, log, 0,
