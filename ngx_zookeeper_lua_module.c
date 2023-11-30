@@ -752,8 +752,9 @@ ngx_zookeeper_register_set_ready(int rc, const struct Stat *stat, const void *da
     ngx_zoo_node_t  *node = (ngx_zoo_node_t *) data;
 
     if (rc == ZOK) {
-            
-        node->epoch = ngx_http_zmcf()->epoch;
+
+        if (!node->ephemeral)
+            node->epoch = ngx_http_zmcf()->epoch;
 
         ngx_log_error(NGX_LOG_INFO, ngx_cycle->log, 0,
             node->update_fmt, node->node, node->data);
