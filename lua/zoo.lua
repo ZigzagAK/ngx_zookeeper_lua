@@ -179,7 +179,9 @@ end
 
 local function suspend(sec)
   if not pcall(sleep, sec) then
-    ngx_log(WARN, "blocking sleep function is used")
+    if ngx.get_phase() ~= "init_worker" then
+      ngx_log(WARN, "blocking sleep function is used")
+    end
     blocking_sleep(sec)
   end
 end
