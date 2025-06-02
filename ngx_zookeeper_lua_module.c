@@ -276,7 +276,7 @@ ngx_http_zookeeper_lua_create_main_conf(ngx_conf_t *cf)
 
     zmcf->zoo.expired = 1;
     zmcf->zoo.epoch = 1;
-    zmcf->zoo.connected = NGX_ERROR;
+    zmcf->zoo.connected = NGX_DECLINED;
 
     zmcf->ev.handler = ngx_zookeeper_monitor;
     c = ngx_pcalloc(cf->pool, sizeof(ngx_connection_t));
@@ -304,7 +304,8 @@ ngx_http_zmcf()
     return &zmcf->zoo;
 }
 
-static void ngx_http_zookeeper_check_mon(void)
+static void
+ngx_http_zookeeper_check_mon(void)
 {
     ngx_http_zookeeper_lua_main_conf_t  *zmcf;
 
@@ -960,7 +961,8 @@ initialize(volatile ngx_cycle_t *cycle)
 
     zmcf = ngx_http_cycle_get_module_main_conf(cycle, ngx_zookeeper_lua_module);
 
-    zmcf->zoo.connected = NGX_DONE;
+    if (zmcf->zoo.connected == NGX_DECLINED)
+        zmcf->zoo.connected = NGX_BUSY;
 
     zmcf->zoo.handle = zookeeper_init2((const char *) zmcf->hosts.data,
                                        session_watcher,
@@ -986,7 +988,7 @@ initialize(volatile ngx_cycle_t *cycle)
     zmcf->zoo.expired = 0;
 
     ngx_log_error(NGX_LOG_INFO, cycle->log, 0,
-                  "Zookeeper: connecting ...");
+                  "Zookeeper: connecting");
 
     return NGX_OK;
 }
@@ -1010,7 +1012,7 @@ session_watcher(zhandle_t *zh,
             zoo->client_id = zoo_client_id(zh);
 
             ngx_log_error(NGX_LOG_INFO, ngx_cycle->log, 0,
-                          "Zookeeper: received a connected event");
+                          "Zookeeper: connected");
 
         } else if (state == ZOO_CONNECTING_STATE) {
 
